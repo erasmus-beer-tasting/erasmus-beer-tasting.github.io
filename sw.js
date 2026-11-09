@@ -1,6 +1,6 @@
 // Offline-Speicher: liefert sofort aus dem Cache und aktualisiert im Hintergrund.
 // Nach Änderungen die Versionsnummer in CACHE erhöhen.
-const CACHE = 'bv-2';
+const CACHE = 'bv-3';
 const FILES = ['./', 'index.html', 'style.css', 'app.js', 'qr.js', 'config.js', 'manifest.webmanifest', 'icon.svg', 'icon-180.png', 'icon-192.png', 'icon-512.png',
   'fonts/oswald.woff2', 'fonts/oswald-ext.woff2', 'fonts/lora.woff2', 'fonts/lora-ext.woff2', 'fonts/lora-italic.woff2', 'fonts/lora-italic-ext.woff2',
   'fonts/kaushan.woff2', 'fonts/kaushan-ext.woff2'];

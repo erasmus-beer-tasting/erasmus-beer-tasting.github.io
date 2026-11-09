@@ -325,7 +325,7 @@ function viewWelcome() {
       <h1 class="big">Bierverkostung</h1>
       <span class="sribbon">Erasmus</span>
       <div class="form" style="max-width:360px;margin:24px auto 0;text-align:left">
-        <label>Dein Name<input id="w-name" maxlength="30" autocomplete="given-name" placeholder="z. B. Sofia"></label>
+        <label>Dein Name<input id="w-name" maxlength="30" autocomplete="given-name" placeholder="z. B. Dino"></label>
         <button class="btn wide" data-act="login" style="margin-top:18px">Anmelden</button>
       </div>
       ${ui.pending ? '<p class="info-box">Du hast einen geteilten Link geöffnet. Biere und Bewertungen werden nach dem Anmelden übernommen.</p>' : ''}
