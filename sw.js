@@ -1,6 +1,6 @@
-// Offline cache: serves from cache immediately and refreshes in the background.
-// After changes, increase the version number in CACHE.
-const CACHE = 'beer-v1';
+// Offline-Speicher: liefert sofort aus dem Cache und aktualisiert im Hintergrund.
+// Nach Änderungen die Versionsnummer in CACHE erhöhen.
+const CACHE = 'beer-v2';
 const FILES = ['./', 'index.html', 'app.js', 'qr.js', 'config.js', 'manifest.webmanifest', 'icon.svg', 'icon-180.png', 'icon-192.png', 'icon-512.png',
   'fonts/fraunces.woff2', 'fonts/gochi.woff2', 'fonts/nunito.woff2'];
 
