@@ -1,10 +1,10 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
-  <rect width="100" height="100" fill="#1c140f"/>
-  <circle cx="50" cy="50" r="40" fill="none" stroke="#b5652b" stroke-width="2.5"/>
-  <circle cx="50" cy="50" r="35" fill="none" stroke="#b5652b" stroke-width="1"/>
-  <g transform="translate(34 27) scale(.8)">
-    <clipPath id="c"><path d="M8 5h24l-2.6 39.5a3.5 3.5 0 0 1-3.5 3.3H14.1a3.5 3.5 0 0 1-3.5-3.3z"/></clipPath>
-    <g clip-path="url(#c)"><rect y="15" width="40" height="40" fill="#e58500"/><rect y="10" width="40" height="5" fill="#f6efe2"/></g>
-    <path d="M8 5h24l-2.6 39.5a3.5 3.5 0 0 1-3.5 3.3H14.1a3.5 3.5 0 0 1-3.5-3.3z" fill="none" stroke="#f6efe2" stroke-width="2.4" stroke-linejoin="round"/>
+  <rect width="100" height="100" fill="#2b201c"/>
+  <circle cx="50" cy="50" r="41" fill="none" stroke="#c0703a" stroke-width="3"/>
+  <circle cx="50" cy="50" r="35" fill="#c0703a"/>
+  <circle cx="50" cy="50" r="31" fill="none" stroke="#ebe2d1" stroke-width="1" stroke-dasharray="3 3"/>
+  <g transform="translate(30 26) scale(.68)">
+    <path d="M14 8H46C46 30 41 40 30 44C19 40 14 30 14 8Z" fill="#ebe2d1"/>
+    <path d="M14 8H46C46 30 41 40 30 44C19 40 14 30 14 8ZM30 44V64M19 66H41" fill="none" stroke="#291c15" stroke-width="3" stroke-linejoin="round" stroke-linecap="round"/>
   </g>
 </svg>

@@ -1,11 +1,11 @@
-// Einstellungen für die Verkostung. Alles andere steht in app.js.
+// Einstellungen für die Verkostung
 window.CONFIG = {
   title: 'Erasmus-Bierverkostung',
   date: '2026-11-10',
 
-  // Optionaler Live-Modus: hier die URL einer Firebase Realtime Database eintragen,
-  // z. B. 'https://beer-tasting-1234-default-rtdb.europe-west1.firebasedatabase.app'.
-  // Leer lassen, dann werden Bewertungen über Links geteilt.
+  // Live-Abgleich zwischen den Handys: URL der Firebase Realtime Database,
+  // z. B. 'https://bierverkostung-1234-default-rtdb.europe-west1.firebasedatabase.app'.
+  // Leer lassen, dann werden Biere und Bewertungen per Link geteilt.
   firebase: '',
   room: 'erasmus'
 };

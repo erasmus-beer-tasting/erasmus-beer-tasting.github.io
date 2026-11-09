@@ -1,499 +1,524 @@
 'use strict';
-/* Erasmus-Bierverkostung: Alle bewerten auf dem eigenen Handy, die Ergebnisse werden über Links oder live zusammengeführt. */
+/* Erasmus-Bierverkostung
+   Anmelden mit Namen, Biere eintragen, bewerten, Ergebnisse vergleichen.
+   Abgleich zwischen den Handys live über Firebase (falls eingerichtet) oder per Link. */
 
 const C = window.CONFIG || {};
 const $ = (s, el = document) => el.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
-/* ---------- Daten ---------- */
+/* ---------- Inhalte ---------- */
 
-const CATS = [
-  { k: 'look', n: 'Farbe & Schaum', s: 'Optik', best: 'Beste Optik', q: 'Farbe, Klarheit und Schaum, gegen das Licht gehalten.' },
-  { k: 'aroma', n: 'Geruch', s: 'Geruch', best: 'Bester Geruch', q: 'Leicht schwenken, dann riechen.' },
-  { k: 'taste', n: 'Geschmack', s: 'Geschmack', best: 'Bester Geschmack', q: 'Malz, Hopfen, Süße, Bitterkeit, Balance.' },
-  { k: 'finish', n: 'Nachgeschmack', s: 'Abgang', best: 'Bester Nachgeschmack', q: 'Was nach dem Schlucken bleibt.' },
-  { k: 'drink', n: 'Drinkability', s: 'Trinkbar', best: 'Beste Drinkability', q: 'Wie gut lässt es sich trinken?' },
-  { k: 'overall', n: 'Gesamt', s: 'Gesamt', best: 'Bestes Gesamturteil', q: 'Dein Gesamteindruck.' }
+const ASPECTS = [
+  { k: 'a', n: 'Aussehen', best: 'Bestes Aussehen', q: 'Farbe, Klarheit und Schaum.' },
+  { k: 'r', n: 'Geruch', best: 'Bester Geruch', q: 'Leicht schwenken, dann riechen.' },
+  { k: 'g', n: 'Geschmack', best: 'Bester Geschmack', q: 'Malz, Hopfen, Süße, Bitterkeit.' },
+  { k: 'n', n: 'Nachgeschmack', best: 'Bester Nachgeschmack', q: 'Was bleibt nach dem Schlucken?' },
+  { k: 'd', n: 'Drinkability', best: 'Beste Drinkability', q: 'Wie leicht trinkt es sich?' }
 ];
-const DEF_W = { look: 10, aroma: 15, taste: 25, finish: 15, drink: 15, overall: 20 };
-const LABELS = [[1.5, 'Schwach'], [2.25, 'Mäßig'], [2.9, 'Ordentlich'], [3.4, 'Solide'], [3.9, 'Gut'], [4.4, 'Sehr gut'], [9, 'Herausragend']];
-
-const SRM = [
-  [2, '#FFE699', 'Hellstroh'], [3, '#FFD878', 'Stroh'], [4, '#FFCA5A', 'Hellgold'], [6, '#F8A600', 'Tiefgold'],
-  [9, '#E58500', 'Hellbernstein'], [12, '#CF6900', 'Bernstein'], [15, '#BB5100', 'Dunkelbernstein'], [18, '#A63E00', 'Kupfer'],
-  [21, '#952D00', 'Braun'], [25, '#7B1A00', 'Rubinbraun'], [30, '#5E0B00', 'Dunkelbraun'], [40, '#36080A', 'Schwarz']
-];
-// [Schlüssel, Chip, Schaumhöhe im großen Glas, Beschreibung]
-const HEAD = [['none', 'Keiner', 0, 'Kein Schaum'], ['thin', 'Dünn', 5, 'Wenig Schaum'], ['medium', 'Mittel', 12, 'Mittlerer Schaum'],
-  ['big', 'Viel', 20, 'Viel Schaum'], ['huge', 'Sehr viel', 27, 'Sehr viel Schaum']];
-const CLARITY = [['clear', 'Klar'], ['hazy', 'Leicht trüb'], ['cloudy', 'Trüb']];
-const NOTES = ['Malzig', 'Brotig', 'Karamell', 'Honig', 'Süß', 'Hopfig', 'Bitter', 'Grasig', 'Kräuter', 'Zitrus', 'Tropisch', 'Fruchtig',
-  'Beeren', 'Banane', 'Nelke', 'Würzig', 'Sauer', 'Wild', 'Röstig', 'Kaffee', 'Schokolade', 'Rauchig', 'Nussig', 'Vanille',
-  'Spritzig', 'Cremig', 'Wässrig', 'Metallisch'];
-const STYLES = ['Pils', 'Lager / Helles', 'Dunkel', 'Märzen / Festbier', 'Bock / Doppelbock', 'Kölsch', 'Altbier', 'Weizen',
-  'Witbier', 'Pale Ale', 'IPA', 'Hazy IPA', 'Amber / Red Ale', 'Belgisches Blonde', 'Dubbel / Tripel', 'Saison', 'Sauerbier / Gose',
-  'Lambic / Fruchtbier', 'Porter', 'Stout', 'Rauchbier', 'Radler', 'Alkoholfrei', 'Sonstiges'];
-const COUNTRIES = [
-  ['AL', 'Albanien', 'Gëzuar!'], ['AR', 'Argentinien', '¡Salud!'], ['AU', 'Australien', 'Cheers!'], ['BE', 'Belgien', 'Santé! Schol!'],
-  ['BA', 'Bosnien und Herzegowina', 'Živjeli!'], ['BR', 'Brasilien', 'Saúde!'], ['BG', 'Bulgarien', 'Nazdrave!'], ['CL', 'Chile', '¡Salud!'],
-  ['CN', 'China', 'Gānbēi!'], ['DK', 'Dänemark', 'Skål!'], ['DE', 'Deutschland', 'Prost!'], ['EE', 'Estland', 'Terviseks!'],
-  ['FI', 'Finnland', 'Kippis!'], ['FR', 'Frankreich', 'Santé!'], ['GR', 'Griechenland', 'Yia mas!'], ['IN', 'Indien', 'Cheers!'],
-  ['ID', 'Indonesien', 'Bersulang!'], ['IE', 'Irland', 'Sláinte!'], ['IS', 'Island', 'Skál!'], ['IL', 'Israel', 'L’chaim!'],
-  ['IT', 'Italien', 'Cin cin!'], ['JP', 'Japan', 'Kanpai!'], ['CA', 'Kanada', 'Cheers! Santé!'], ['CO', 'Kolumbien', '¡Salud!'],
-  ['HR', 'Kroatien', 'Živjeli!'], ['LV', 'Lettland', 'Priekā!'], ['LT', 'Litauen', 'Į sveikatą!'], ['LU', 'Luxemburg', 'Prost!'],
-  ['MT', 'Malta', 'Saħħa!'], ['MX', 'Mexiko', '¡Salud!'], ['ME', 'Montenegro', 'Živjeli!'], ['NZ', 'Neuseeland', 'Cheers!'],
-  ['NL', 'Niederlande', 'Proost!'], ['MK', 'Nordmazedonien', 'Na zdravje!'], ['NO', 'Norwegen', 'Skål!'], ['AT', 'Österreich', 'Prost!'],
-  ['PH', 'Philippinen', 'Tagay!'], ['PL', 'Polen', 'Na zdrowie!'], ['PT', 'Portugal', 'Saúde!'], ['RO', 'Rumänien', 'Noroc!'],
-  ['SE', 'Schweden', 'Skål!'], ['CH', 'Schweiz', 'Proscht! Santé!'], ['RS', 'Serbien', 'Živeli!'], ['SK', 'Slowakei', 'Na zdravie!'],
-  ['SI', 'Slowenien', 'Na zdravje!'], ['ES', 'Spanien', '¡Salud!'], ['ZA', 'Südafrika', 'Gesondheid!'], ['KR', 'Südkorea', 'Geonbae!'],
-  ['TH', 'Thailand', 'Chon kaew!'], ['CZ', 'Tschechien', 'Na zdraví!'], ['TR', 'Türkei', 'Şerefe!'], ['UA', 'Ukraine', 'Budmo!'],
-  ['HU', 'Ungarn', 'Egészségedre!'], ['US', 'USA', 'Cheers!'], ['GB', 'Vereinigtes Königreich', 'Cheers!'], ['VN', 'Vietnam', 'Một hai ba, dô!'],
-  ['CY', 'Zypern', 'Yia mas!'], ['XX', 'Anderes Land', 'Prost!']
-];
+const FAZIT = ['Nie wieder', 'Eher nicht', 'Kann man trinken', 'Gerne wieder', 'Richtig gut', 'Wird eins meiner Favoriten'];
+const FILTERS = [['total', 'Gesamt'], ...ASPECTS.map(a => [a.k, a.n]), ['f', 'Fazit']];
+const STYLES = ['Pils', 'Helles', 'Lager', 'Weizen', 'Dunkel', 'Bock', 'Märzen', 'Kölsch', 'Altbier', 'Pale Ale', 'IPA', 'Stout', 'Porter',
+  'Witbier', 'Tripel', 'Dubbel', 'Saison', 'Sauerbier', 'Fruchtbier', 'Radler', 'Alkoholfrei'];
+const CHEERS = [['Prost!', 'Deutsch'], ['Skål!', 'Schwedisch'], ['¡Salud!', 'Spanisch'], ['Santé!', 'Französisch'], ['Cin cin!', 'Italienisch'],
+  ['Na zdrowie!', 'Polnisch'], ['Na zdraví!', 'Tschechisch'], ['Proost!', 'Niederländisch'], ['Kippis!', 'Finnisch'], ['Saúde!', 'Portugiesisch'],
+  ['Şerefe!', 'Türkisch'], ['Yamas!', 'Griechisch'], ['Sláinte!', 'Irisch'], ['Egészségedre!', 'Ungarisch'], ['Cheers!', 'Englisch'],
+  ['Kanpai!', 'Japanisch'], ['Terviseks!', 'Estnisch'], ['Noroc!', 'Rumänisch'], ['Živjeli!', 'Kroatisch'], ['Skál!', 'Isländisch']];
 
 /* ---------- Zustand ---------- */
 
-const KEY = 'beer-tasting-v1', FK = 'beer-tasting-foto-', UK = 'beer-tasting-tab';
-const fresh = () => ({ me: null, beers: {}, ratings: {}, others: {}, weights: { ...DEF_W }, blind: false, hidden: {}, myFotos: {} });
+const KEY = 'bv-state-1', PK = 'bv-photo-', TK = 'bv-tab';
+const emptyDb = () => ({ beers: {}, ratings: {}, users: {} });
 let S;
-try { S = Object.assign(fresh(), JSON.parse(localStorage.getItem(KEY)) || {}); } catch (e) { S = fresh(); }
-const ui = { tab: localStorage.getItem(UK) || 'beers', sheet: null, pending: null };
+try { S = JSON.parse(localStorage.getItem(KEY)) || {}; } catch (e) { S = {}; }
+S = { me: S.me || null, db: Object.assign(emptyDb(), S.db || {}), queue: Array.isArray(S.queue) ? S.queue : [] };
+const ui = { tab: localStorage.getItem(TK) || 'beers', sel: null, draft: null, mode: 'all', filter: 'total', sheet: null, pending: null, cheer: 0, dirty: false };
 
 function persist() {
-  try { localStorage.setItem(KEY, JSON.stringify(S)); }
-  catch (e) { toast('Speicher voll. Ein paar Fotos entfernen?'); }
-}
-function save() { persist(); scheduleSync(); }
-
-const foto = id => localStorage.getItem(FK + id);
-function setFoto(id, data) {
-  try { localStorage.setItem(FK + id, data); return true; }
-  catch (e) { toast('Nicht genug Platz für dieses Foto'); return false; }
+  try { localStorage.setItem(KEY, JSON.stringify(S)); } catch (e) { toast('Der Speicher ist voll'); }
 }
 
 /* ---------- Hilfsfunktionen ---------- */
 
-const hasCountry = c => !!c && c !== 'XX';
-const flag = c => hasCountry(c) && /^[A-Z]{2}$/.test(c) ? String.fromCodePoint(...[...c].map(ch => 127397 + ch.charCodeAt(0))) : '';
-const tflag = c => hasCountry(c) ? flag(c) + ' ' : '';
-const country = c => COUNTRIES.find(x => x[0] === c);
-const cName = c => country(c)?.[1] || 'Unbekannt';
-const cheers = c => country(c)?.[2] || 'Prost!';
-const srmOf = v => SRM.find(x => x[0] === v);
-const fmt = x => x == null ? '–' : x.toFixed(1).replace('.', ',');
-const pct = x => String(x).replace('.', ',');
-const fmtHalf = v => String(v).replace('.', ',');
-const pad = n => String(n).padStart(2, '0');
-const label = x => LABELS.find(l => x < l[0])[1];
 const rid = () => Math.random().toString(36).slice(2, 10);
 const mean = a => a.reduce((s, x) => s + x, 0) / a.length;
+const fmt = x => x == null || isNaN(x) ? '–' : x.toFixed(1).replace('.', ',');
+const pct = x => String(x).replace('.', ',');
+const pad = n => String(n).padStart(2, '0');
 const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
-const fmtDate = d => new Date(d + 'T12:00').toLocaleDateString('de-DE', { day: 'numeric', month: 'long', year: 'numeric' });
-const slug = s => s.toLowerCase().replace(/ß/g, 'ss').replace(/ø/g, 'o').replace(/æ/g, 'ae').replace(/ł/g, 'l').replace(/đ/g, 'd')
-  .normalize('NFKD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40) || 'bier';
-// Textfarbe, die auf einer Bierfarbe lesbar bleibt
-const textOn = hex => { const n = parseInt(hex.slice(1), 16); return ((n >> 16) * .299 + ((n >> 8) & 255) * .587 + (n & 255) * .114) / 255 > .6 ? '#241a14' : '#f6efe2'; };
+const fmtDate = d => d ? new Date(d + 'T12:00').toLocaleDateString('de-DE', { day: 'numeric', month: 'long', year: 'numeric' }) : '';
+const cheer = () => CHEERS[ui.cheer][0];
 
-const beersList = () => Object.values(S.beers).filter(b => !b.del).sort((a, b) => (a.at || 0) - (b.at || 0) || a.id.localeCompare(b.id));
-const numOf = id => beersList().findIndex(b => b.id === id) + 1;
-const revealed = b => !S.blind || b.byId === S.me?.id || !!S.ratings[b.id];
-const bname = b => revealed(b) ? b.name : `Bier ${pad(numOf(b.id))}`;
+const beers = () => Object.entries(S.db.beers || {}).filter(([, b]) => b && !b.del && b.name)
+  .map(([id, b]) => ({ ...b, id })).sort((a, b) => (a.at || 0) - (b.at || 0) || a.id.localeCompare(b.id));
+const beer = id => { const b = S.db.beers?.[id]; return b && !b.del ? { ...b, id } : null; };
+const numOf = id => beers().findIndex(b => b.id === id) + 1;
+const mine = id => S.me ? S.db.ratings?.[id]?.[S.me.id] || null : null;
+const userName = uid => S.db.users?.[uid]?.name || 'Gast';
+const isNum = v => typeof v === 'number' && !isNaN(v);
+const aspAvg = r => { const v = ASPECTS.map(a => r?.[a.k]).filter(isNum); return v.length ? mean(v) : null; };
+const val = (r, f) => f === 'total' ? aspAvg(r) : isNum(r?.[f]) ? r[f] : null;
 
-function score(r, w = S.weights) {
-  if (!r) return null;
-  let s = 0, t = 0;
-  for (const c of CATS) { const v = r[c.k]; if (v) { s += v * (w[c.k] || 0); t += w[c.k] || 0; } }
-  return t ? s / t : null;
+function ratingsOf(id, mode = 'all') {
+  const all = Object.entries(S.db.ratings?.[id] || {}).filter(([, r]) => r && typeof r === 'object');
+  return mode === 'me' ? all.filter(([u]) => u === S.me?.id) : all;
 }
 
-function beerSrm(id) {
-  const mine = S.ratings[id]?.srm;
-  if (mine) return mine;
-  const cnt = {};
-  for (const o of Object.values(S.others)) { const v = o.ratings?.[id]?.srm; if (v) cnt[v] = (cnt[v] || 0) + 1; }
-  const top = Object.entries(cnt).sort((a, b) => b[1] - a[1])[0];
-  return top ? +top[0] : null;
-}
-
-function tasters() {
-  const me = { id: S.me.id, name: S.me.name, country: S.me.country, ratings: S.ratings, me: true };
-  return [me, ...Object.values(S.others).filter(o => !S.hidden[o.id])];
-}
-
-function myRanked() {
-  return beersList().map(b => ({ b, s: score(S.ratings[b.id]), r: S.ratings[b.id] }))
-    .filter(x => x.s != null).sort((x, y) => y.s - x.s);
-}
-
-function groupStats() {
-  const T = tasters(), rows = [];
-  for (const b of beersList()) {
-    const sc = [];
-    for (const t of T) { const r = t.ratings[b.id], s = score(r); if (s != null) sc.push({ t, s, r }); }
-    if (!sc.length) continue;
-    const avg = mean(sc.map(x => x.s));
-    const sd = Math.sqrt(mean(sc.map(x => (x.s - avg) ** 2)));
-    const cat = {};
-    for (const c of CATS) { const v = sc.map(x => x.r[c.k]).filter(Boolean); cat[c.k] = v.length ? mean(v) : null; }
-    rows.push({ b, avg, sd, n: sc.length, sc, cat });
-  }
-  rows.sort((a, b) => b.avg - a.avg || b.n - a.n);
-  return { T, rows };
+function rows(filter, mode) {
+  return beers().map(b => {
+    const vals = ratingsOf(b.id, mode).map(([, r]) => val(r, filter)).filter(isNum);
+    if (!vals.length) return null;
+    const v = mean(vals);
+    return { b, v, n: vals.length, vals, sd: Math.sqrt(mean(vals.map(x => (x - v) ** 2))) };
+  }).filter(Boolean).sort((x, y) => y.v - x.v || y.n - x.n);
 }
 
 /* ---------- Grafik ---------- */
 
-const ICONS = {
-  beers: '<path d="M6.5 3.5h11l-1.3 16.2a1.5 1.5 0 0 1-1.5 1.3H9.3a1.5 1.5 0 0 1-1.5-1.3z"/><path d="M7 8.5h10"/>',
-  rank: '<path d="M3 20.5h18M9 20.5V7.5h6v13M3 20.5v-7h6M15 20.5v-4.5h6"/>',
-  group: '<circle cx="9" cy="8" r="3.2"/><path d="M3 20c0-3.6 2.7-6.2 6-6.2s6 2.6 6 6.2"/><circle cx="17.2" cy="9" r="2.5"/><path d="M15.8 14.1c3 .3 5.2 2.6 5.2 5.9"/>',
-  more: '<path d="M4 7h16M4 12h16M4 17h16"/>'
+const ICON = {
+  list: '<path d="M8 6h12M8 12h12M8 18h12"/><circle cx="4" cy="6" r="1"/><circle cx="4" cy="12" r="1"/><circle cx="4" cy="18" r="1"/>',
+  glass: '<path d="M7 3h10c0 7-1.6 10.5-5 12-3.4-1.5-5-5-5-12z"/><path d="M12 15v5M8.5 21h7M7.3 6.5h9.4"/>',
+  trophy: '<path d="M8 4h8v5a4 4 0 0 1-8 0z"/><path d="M8 6H5a3 3 0 0 0 3 4M16 6h3a3 3 0 0 1-3 4M12 13v4M8.5 20h7M10 17h4v3h-4z"/>',
+  menu: '<path d="M4 7h16M4 12h16M4 17h16"/>',
+  close: '<path d="M6 6l12 12M18 6L6 18"/>',
+  check: '<path d="M5 12.5l4.5 4.5L19 7.5"/>'
 };
-const TABS = [['beers', 'Biere'], ['rank', 'Mein Ranking'], ['group', 'Gruppe'], ['more', 'Mehr']];
+const svgIcon = (k, cls = '') => `<svg class="${cls}" viewBox="0 0 24 24" aria-hidden="true">${ICON[k]}</svg>`;
+const STAR = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2.8l2.8 5.9 6.4.8-4.7 4.4 1.2 6.4L12 17.2l-5.7 3.1 1.2-6.4L2.8 9.5l6.4-.8z"/></svg>';
+const GOBLET = '<svg class="goblet" viewBox="0 0 60 72" aria-hidden="true"><path d="M14 8H46C46 30 41 40 30 44C19 40 14 30 14 8Z" fill="#dc9a45"/><path d="M14 8H46C46 11.5 45.9 14.5 45.6 17H14.4C14.1 14.5 14 11.5 14 8Z" fill="#f6efe2"/><path d="M14 8H46C46 30 41 40 30 44C19 40 14 30 14 8ZM30 44V64M19 66H41" fill="none" stroke="#291c15" stroke-width="2.4" stroke-linejoin="round" stroke-linecap="round"/></svg>';
+const CUP = '<svg class="cup-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 7h11v11a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2z"/><path d="M16 10h2a2 2 0 0 1 2 2v2a2 2 0 0 1-2 2h-2M5 7c0-2 1.5-3 3-2.5C9 3 11.5 3 12.5 4.5 14 4 16 5 16 7"/></svg>';
 
-// Probierglas (wie auf einem Probierbrett)
-const GP = 'M8 5h24l-2.6 39.5a3.5 3.5 0 0 1-3.5 3.3H14.1a3.5 3.5 0 0 1-3.5-3.3z';
-let GID = 0;
-function glass(v, head) {
-  const col = v ? srmOf(v)?.[1] : null, id = 'gc' + (++GID), top = 15;
-  const fh = !col || head === 'none' ? 0 : ({ thin: 3, medium: 5, big: 7, huge: 9 }[head] ?? 4);
-  return `<svg class="g" viewBox="0 0 40 52" aria-hidden="true">
-    ${col ? `<defs><clipPath id="${id}"><path d="${GP}"/></clipPath></defs><g clip-path="url(#${id})"><rect y="${top}" width="40" height="40" fill="${col}"/>${fh ? `<rect y="${top - fh}" width="40" height="${fh}" fill="#f6efe2"/>` : ''}</g>` : ''}
-    <path d="${GP}" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg>`;
-}
-
-function seal(cls = '') {
-  const year = (C.date || '').slice(0, 4) || new Date().getFullYear();
-  return `<svg class="seal ${cls}" viewBox="0 0 200 200" aria-hidden="true">
-    <defs><path id="seal-top" d="M30 100a70 70 0 0 1 140 0"/><path id="seal-bot" d="M23 100a77 77 0 0 0 154 0"/></defs>
-    <circle cx="100" cy="100" r="95" class="s1"/><circle cx="100" cy="100" r="89" class="s2"/><circle cx="100" cy="100" r="55" class="s2"/>
-    <text class="st"><textPath href="#seal-top" startOffset="50%" text-anchor="middle">ERASMUS</textPath></text>
-    <text class="st sm"><textPath href="#seal-bot" startOffset="50%" text-anchor="middle">BIERVERKOSTUNG</textPath></text>
-    <circle cx="22" cy="100" r="2.6" class="dot"/><circle cx="178" cy="100" r="2.6" class="dot"/>
-    <g transform="translate(82 62) scale(.9)"><path d="${GP}" class="gl"/><path d="M9.5 17h21" class="gl"/></g>
-    <text x="100" y="138" text-anchor="middle" class="sy">${year}</text>
-  </svg>`;
-}
-
-function bigGlass(d) {
-  const col = d.srm ? srmOf(d.srm)[1] : null;
-  const fh = (HEAD.find(h => h[0] === d.head) || [0, 0, 8])[2];
-  const haze = { hazy: .18, cloudy: .34 }[d.clarity] || 0, top = 44;
-  let foam = '';
-  if (col && fh) {
-    foam = `<rect x="0" y="${top - fh}" width="120" height="${fh + 2}" fill="#f6efe2"/>`;
-    for (let x = 24; x <= 96; x += 9) foam += `<circle cx="${x}" cy="${top - fh}" r="${4 + (x % 3)}" fill="#f6efe2"/>`;
+const WHEAT = (() => {
+  let s = '<path d="M30 196C30 150 30 90 30 26"/>';
+  for (let i = 0; i < 8; i++) {
+    const y = 40 + i * 19;
+    s += `<ellipse cx="21" cy="${y}" rx="5" ry="11" transform="rotate(-30 21 ${y})"/><ellipse cx="39" cy="${y}" rx="5" ry="11" transform="rotate(30 39 ${y})"/>`;
   }
-  let bubbles = '';
-  if (col) [[44, 0], [58, 1.2], [70, .5], [80, 1.9], [52, 2.6], [64, 3.3]].forEach(([x, dl]) => {
-    bubbles += `<circle class="bub" cx="${x}" cy="150" r="1.5" style="animation-delay:${dl}s"/>`;
-  });
-  const path = 'M24 12h72l-8 140a8 8 0 0 1-8 7.5H40a8 8 0 0 1-8-7.5z';
-  return `<svg class="bigglass" viewBox="0 0 120 170" aria-hidden="true">
-    <defs><clipPath id="bg-clip"><path d="${path}"/></clipPath></defs>
-    ${col ? `<g clip-path="url(#bg-clip)">
-      <rect x="0" y="${top}" width="120" height="130" fill="${col}"/>
-      ${haze ? `<rect x="0" y="${top}" width="120" height="130" fill="#fff6dc" opacity="${haze}"/>` : ''}
-      ${bubbles}${foam}
-      <rect x="34" y="20" width="7" height="125" fill="#fff" opacity=".18"/>
-    </g>` : ''}
-    <path d="${path}" fill="none" stroke="#e9dcc6" stroke-width="3" stroke-linejoin="round"/>
+  return s + '<ellipse cx="30" cy="20" rx="5" ry="12"/>';
+})();
+const wheat = () => `<svg class="wheat l" viewBox="0 0 60 200" aria-hidden="true">${WHEAT}</svg><svg class="wheat r" viewBox="0 0 60 200" aria-hidden="true">${WHEAT}</svg>`;
+
+function sprig(x, y, flip) {
+  const f = flip ? -1 : 1;
+  let s = `<path class="wh" d="M${x} ${y + 44}C${x} ${y + 28} ${x + 4 * f} ${y + 12} ${x + 8 * f} ${y}"/>`;
+  for (let i = 0; i < 4; i++) {
+    const cy = y + 8 + i * 9, cx = x + (6 - i * 1.5) * f;
+    s += `<ellipse class="wh" cx="${cx - 5 * f}" cy="${cy}" rx="2.6" ry="5.5" transform="rotate(${-35 * f} ${cx - 5 * f} ${cy})"/><ellipse class="wh" cx="${cx + 5 * f}" cy="${cy}" rx="2.6" ry="5.5" transform="rotate(${35 * f} ${cx + 5 * f} ${cy})"/>`;
+  }
+  return s;
+}
+
+function seal() {
+  const year = (C.date || '').slice(0, 4) || new Date().getFullYear();
+  const star = (x, y, r) => `<path class="star" transform="translate(${x - 12 * r} ${y - 12 * r}) scale(${r})" d="M12 2.8l2.8 5.9 6.4.8-4.7 4.4 1.2 6.4L12 17.2l-5.7 3.1 1.2-6.4L2.8 9.5l6.4-.8z"/>`;
+  return `<svg class="seal" viewBox="0 0 480 300" aria-hidden="true">
+    <defs><path id="sa-top" d="M150 150a90 90 0 0 1 180 0"/><path id="sa-bot" d="M146 150a94 94 0 0 0 188 0"/></defs>
+    <circle class="ring" cx="240" cy="150" r="124" stroke-width="3"/>
+    <circle class="ring" cx="240" cy="150" r="116" stroke-width="1.2"/>
+    <circle class="ring" cx="240" cy="150" r="74" stroke-width="1.2"/>
+    <text class="tx"><textPath href="#sa-top" startOffset="50%" text-anchor="middle">ERASMUS</textPath></text>
+    <text class="tx sm fade" data-ch="W"><textPath href="#sa-bot" startOffset="50%" text-anchor="middle">${esc(CHEERS[ui.cheer][0].toUpperCase())}</textPath></text>
+    ${star(165, 104, .55)}${star(315, 104, .55)}
+    ${sprig(200, 78, true)}${sprig(280, 78, false)}
+    <g transform="translate(217.5 70) scale(.75)"><path class="ico f" d="M14 8H46C46 30 41 40 30 44C19 40 14 30 14 8Z"/><path d="M14 8H46C46 11.5 45.9 14.5 45.6 17H14.4C14.1 14.5 14 11.5 14 8Z" fill="#ebe2d1"/><path class="ico" d="M14 8H46C46 30 41 40 30 44C19 40 14 30 14 8ZM30 44V64M19 66H41"/></g>
+    <polygon class="tail" points="74,146 120,146 120,190 74,190 88,168"/>
+    <polygon class="tail" points="406,146 360,146 360,190 406,190 392,168"/>
+    <rect class="ban" x="104" y="132" width="272" height="44"/>
+    <text class="bt" x="240" y="165" text-anchor="middle">BIERVERKOSTUNG</text>
+    ${star(222, 196, .5)}${star(240, 198, .62)}${star(258, 196, .5)}
+    <circle class="mini" cx="36" cy="160" r="27"/><text class="mt" x="36" y="165" text-anchor="middle">EST</text>
+    <circle class="mini" cx="444" cy="160" r="27"/><text class="mt" x="444" y="165" text-anchor="middle">${year}</text>
   </svg>`;
 }
 
-function radar(mine, group) {
-  const R = 70, cx = 140, cy = 104, n = CATS.length;
-  const pt = (i, v) => { const a = -Math.PI / 2 + i * 2 * Math.PI / n; return [cx + Math.cos(a) * R * v / 5, cy + Math.sin(a) * R * v / 5]; };
-  const poly = vals => CATS.map((c, i) => pt(i, vals[c.k] || 0).map(z => z.toFixed(1)).join(',')).join(' ');
-  let g = '';
-  for (let v = 1; v <= 5; v++) g += `<polygon class="ring${v === 5 ? ' outer' : ''}" points="${CATS.map((c, i) => pt(i, v).join(',')).join(' ')}"/>`;
-  CATS.forEach((c, i) => {
-    const [x, y] = pt(i, 5), [lx, ly] = pt(i, 6.15);
-    const anchor = Math.abs(lx - cx) < 4 ? 'middle' : lx > cx ? 'start' : 'end';
-    g += `<line class="axis" x1="${cx}" y1="${cy}" x2="${x}" y2="${y}"/><text x="${lx}" y="${ly + 4}" text-anchor="${anchor}">${c.s}</text>`;
-  });
-  const series = (vals, cls) => vals ? `<polygon class="${cls}" points="${poly(vals)}"/>` +
-    CATS.map((c, i) => vals[c.k] ? `<circle class="${cls}" cx="${pt(i, vals[c.k])[0].toFixed(1)}" cy="${pt(i, vals[c.k])[1].toFixed(1)}" r="4"/>` : '').join('') : '';
-  const legend = mine && group ? `<div class="legend"><span><i class="me"></i>Du</span><span><i class="grp"></i>Gruppenschnitt</span></div>` : '';
-  return `${legend}<svg class="radar" viewBox="0 0 280 205" role="img" aria-label="Werte pro Kategorie">${g}${series(group, 'grp')}${series(mine, 'me')}</svg>`;
+function stamp(n) {
+  return `<svg class="stamp" viewBox="0 0 200 200" aria-hidden="true"><defs><path id="st-ring" d="M100 100m-72 0a72 72 0 1 1 144 0a72 72 0 1 1-144 0"/></defs>
+    <circle cx="100" cy="100" r="92"/><circle cx="100" cy="100" r="58"/>
+    <text><textPath href="#st-ring">• ERASMUS • BIERVERKOSTUNG • WELTWEIT</textPath></text>
+    <text class="n" x="100" y="108" text-anchor="middle">${n}</text><text x="100" y="128" text-anchor="middle">SORTEN</text></svg>`;
 }
 
-function strip(row) {
-  const W = 120, x = v => 7 + (v - 1) / 4 * (W - 14);
-  return `<svg class="strip" viewBox="0 0 ${W} 16" aria-hidden="true"><line x1="7" x2="${W - 7}" y1="8" y2="8"/>` +
-    row.sc.map(s => `<circle cx="${x(s.s).toFixed(1)}" cy="8" r="4.2" class="${s.t.me ? 'me' : ''}"/>`).join('') +
-    `<line class="avg" x1="${x(row.avg).toFixed(1)}" x2="${x(row.avg).toFixed(1)}" y1="1" y2="15"/></svg>`;
+/* ---------- Fotos ---------- */
+
+function photo(b) {
+  if (!b.photo) return null;
+  const d = localStorage.getItem(PK + b.id), at = +localStorage.getItem(PK + b.id + '@') || 0;
+  if (FB && (!d || (b.photoAt || 0) > at)) loadPhoto(b);
+  return d;
+}
+function storePhoto(id, d, at) {
+  try { localStorage.setItem(PK + id, d); localStorage.setItem(PK + id + '@', String(at || Date.now())); return true; }
+  catch (e) { toast('Nicht genug Speicher für das Foto'); return false; }
+}
+function loadPhoto(b) {
+  const key = b.id + '@' + (b.photoAt || 0);
+  if (sync.tried[key]) return;
+  sync.tried[key] = 1;
+  fetch(url(`photos/${b.id}`)).then(r => r.json()).then(d => {
+    if (typeof d === 'string' && d.startsWith('data:image/')) { storePhoto(b.id, d, b.photoAt); softRender(); }
+  }).catch(() => { delete sync.tried[key]; });
+}
+async function shrink(file, max = 520) {
+  const src = URL.createObjectURL(file);
+  try {
+    const img = await new Promise((ok, no) => { const i = new Image(); i.onload = () => ok(i); i.onerror = no; i.src = src; });
+    const k = Math.min(1, max / Math.max(img.naturalWidth, img.naturalHeight));
+    const c = document.createElement('canvas');
+    c.width = Math.round(img.naturalWidth * k); c.height = Math.round(img.naturalHeight * k);
+    c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+    return c.toDataURL('image/jpeg', .72);
+  } finally { URL.revokeObjectURL(src); }
 }
 
-const countryOptions = (sel, empty) => (empty ? `<option value="">${empty}</option>` : '') +
-  COUNTRIES.map(([c, n]) => `<option value="${c}"${c === sel ? ' selected' : ''}>${hasCountry(c) ? flag(c) + ' ' : ''}${esc(n)}</option>`).join('');
+function circle(b, opt = {}) {
+  const src = b ? photo(b) : null;
+  return `<div class="circle"${opt.id ? ` id="${opt.id}"` : ''}>${src ? `<img src="${src}" alt="">` : GOBLET}${opt.no ? `<span class="no">${pad(numOf(b.id))}</span>` : ''}${opt.ok ? `<span class="ok">${svgIcon('check')}</span>` : ''}${opt.medal ? `<span class="medal">${opt.medal}</span>` : ''}</div>`;
+}
 
-const shead = (kicker, title) => `<div class="shead">${kicker ? `<p class="kicker">${kicker}</p>` : ''}<h2>${title}</h2></div>`;
+/* ---------- Abgleich ---------- */
+
+const FB = (C.firebase || '').trim().replace(/\/+$/, '');
+const ROOM = (new URLSearchParams(location.search).get('room') || C.room || 'tasting').replace(/[^A-Za-z0-9_-]/g, '').slice(0, 40) || 'tasting';
+const sync = { ok: null, busy: false, tried: {} };
+const url = p => `${FB}/rooms/${ROOM}/${p}.json`;
+const BAD = new Set(['__proto__', 'constructor', 'prototype']);
+
+function setAt(root, segs, value) {
+  if (segs.some(s => BAD.has(s))) return;
+  let o = root;
+  for (let i = 0; i < segs.length - 1; i++) {
+    if (typeof o[segs[i]] !== 'object' || o[segs[i]] === null) o[segs[i]] = {};
+    o = o[segs[i]];
+  }
+  const last = segs[segs.length - 1];
+  if (value === null || value === undefined) delete o[last]; else o[last] = value;
+}
+
+// Schreibt lokal und (falls Live-Abgleich aktiv) in die gemeinsame Datenbank
+function write(path, value) {
+  const segs = path.split('/');
+  if (segs[0] === 'data') setAt(S.db, segs.slice(1), value);
+  if (FB) { S.queue.push([path, value]); flush(); }
+  persist();
+}
+async function flush() {
+  if (sync.busy || !FB) return;
+  sync.busy = true;
+  while (S.queue.length) {
+    const [path, value] = S.queue[0];
+    try {
+      const r = await fetch(url(path), value === null ? { method: 'DELETE' } : { method: 'PUT', body: JSON.stringify(value) });
+      if (!r.ok) throw new Error(r.status);
+      S.queue.shift(); persist();
+    } catch (e) { sync.busy = false; setLive(false); setTimeout(flush, 6000); return; }
+  }
+  sync.busy = false;
+}
+function onRemote(e, patch) {
+  let m;
+  try { m = JSON.parse(e.data); } catch (err) { return; }
+  if (!m || typeof m.path !== 'string') return;
+  const segs = m.path.split('/').filter(Boolean);
+  if (!segs.length && !patch) {
+    const d = m.data || {};
+    S.db = { beers: d.beers || {}, ratings: d.ratings || {}, users: d.users || {} };
+    for (const [p, v] of S.queue) { const s = p.split('/'); if (s[0] === 'data') setAt(S.db, s.slice(1), v); }
+  } else if (patch) {
+    for (const [k, v] of Object.entries(m.data || {})) setAt(S.db, [...segs, ...k.split('/')], v);
+  } else setAt(S.db, segs, m.data);
+  setLive(true); persist(); softRender();
+}
+function connect() {
+  if (!FB || !window.EventSource) return;
+  const es = new EventSource(url('data'));
+  es.addEventListener('put', e => onRemote(e, false));
+  es.addEventListener('patch', e => onRemote(e, true));
+  es.addEventListener('cancel', () => setLive(false));
+  es.onopen = () => { setLive(true); flush(); };
+  es.onerror = () => setLive(false);
+}
+function setLive(ok) {
+  if (sync.ok === ok) return;
+  sync.ok = ok;
+  const d = $('#livedot');
+  if (d) d.className = 'livedot ' + (ok ? 'ok' : 'bad');
+}
+
+// Rendern, ohne laufende Eingaben zu stören
+let rTimer = null;
+function softRender() {
+  clearTimeout(rTimer);
+  rTimer = setTimeout(() => {
+    const a = document.activeElement;
+    if (a && (a.tagName === 'INPUT' || a.tagName === 'TEXTAREA') && $('#app').contains(a)) { ui.dirty = true; return; }
+    render();
+    if (ui.sheet?.type === 'detail') renderSheet();
+  }, 150);
+}
+document.addEventListener('focusout', () => { if (ui.dirty) { ui.dirty = false; setTimeout(softRender, 50); } });
+
+/* Teilen per Link (ohne Live-Abgleich) */
+const b64u = bytes => { let s = ''; for (let i = 0; i < bytes.length; i++) s += String.fromCharCode(bytes[i]); return btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, ''); };
+const unb64u = s => Uint8Array.from(atob(s.replace(/-/g, '+').replace(/_/g, '/')), c => c.charCodeAt(0));
+const pipe = async (bytes, stream) => new Uint8Array(await new Response(new Blob([bytes]).stream().pipeThrough(stream)).arrayBuffer());
+const baseUrl = () => location.origin + location.pathname;
+const inviteUrl = () => baseUrl() + (new URLSearchParams(location.search).get('room') ? `?room=${encodeURIComponent(ROOM)}` : '');
+
+async function shareLink() {
+  let bytes = new TextEncoder().encode(JSON.stringify({ v: 1, db: S.db })), pre = 'j';
+  if (window.CompressionStream) { try { bytes = await pipe(bytes, new CompressionStream('deflate-raw')); pre = 'z'; } catch (e) { /* unkomprimiert */ } }
+  return inviteUrl() + '#d=' + pre + b64u(bytes);
+}
+async function importLink(s) {
+  try {
+    let bytes = unb64u(s.slice(1));
+    if (s[0] === 'z') bytes = await pipe(bytes, new DecompressionStream('deflate-raw'));
+    const n = merge(JSON.parse(new TextDecoder().decode(bytes)).db || {});
+    persist(); render();
+    toast(`Übernommen: ${plural(n.beers, 'neues Bier', 'neue Biere')}, ${plural(n.ratings, 'Bewertung', 'Bewertungen')}`, 3500);
+  } catch (e) { toast('Dieser Link konnte nicht gelesen werden'); }
+}
+const ID = /^[a-z0-9]{3,16}$/;
+const str = (v, n) => String(v ?? '').slice(0, n);
+const numIn = (v, lo, hi) => { v = +v; return isNum(v) && v >= lo && v <= hi ? v : null; };
+function merge(db) {
+  const n = { beers: 0, ratings: 0 };
+  const newer = (a, b) => !b || (a.upd || a.at || 0) > (b.upd || b.at || 0);
+  for (const [id, b] of Object.entries(db.beers || {})) {
+    if (!ID.test(id) || !b || typeof b !== 'object') continue;
+    const clean = { name: str(b.name, 60), style: str(b.style, 40), abv: numIn(b.abv, 0, 30), region: str(b.region, 40), brewery: str(b.brewery, 50),
+      by: str(b.by, 30), byId: str(b.byId, 16), at: numIn(b.at, 0, 9e15) || 0, upd: numIn(b.upd, 0, 9e15) || 0, del: !!b.del, photo: false };
+    if (newer(clean, S.db.beers[id])) { if (!S.db.beers[id] && !clean.del) n.beers++; S.db.beers[id] = { ...clean, photo: !!S.db.beers[id]?.photo, photoAt: S.db.beers[id]?.photoAt || 0 }; }
+  }
+  for (const [id, u] of Object.entries(db.users || {})) {
+    if (ID.test(id) && u && newer(u, S.db.users[id])) S.db.users[id] = { name: str(u.name, 30), at: numIn(u.at, 0, 9e15) || 0 };
+  }
+  for (const [bid, per] of Object.entries(db.ratings || {})) {
+    if (!ID.test(bid) || !per || typeof per !== 'object') continue;
+    for (const [uid, r] of Object.entries(per)) {
+      if (!ID.test(uid) || !r || typeof r !== 'object') continue;
+      const clean = { at: numIn(r.at, 0, 9e15) || 0, t: str(r.t, 300), f: numIn(r.f, 0, 5) };
+      ASPECTS.forEach(a => { clean[a.k] = numIn(r[a.k], 1, 5); });
+      const cur = S.db.ratings[bid]?.[uid];
+      if (!cur || clean.at > (cur.at || 0)) { if (!cur) n.ratings++; (S.db.ratings[bid] ||= {})[uid] = clean; }
+    }
+  }
+  return n;
+}
 
 /* ---------- Ansichten ---------- */
 
+function topbar() {
+  return `<header class="topbar">
+    <div class="logo"><i>Erasmus</i><b>EB</b></div>
+    <div class="t"><b>Bierverkostung</b><small>${S.me ? esc(S.me.name) : esc(fmtDate(C.date))}</small></div>
+    ${FB ? `<span id="livedot" class="livedot ${sync.ok === null ? '' : sync.ok ? 'ok' : 'bad'}" title="Live-Abgleich"></span>` : ''}
+    ${S.me ? `<button class="menu" data-act="menu" aria-label="Menü">${svgIcon('menu')}</button>` : ''}
+  </header>`;
+}
+
+function tabbar() {
+  const t = ui.tab;
+  return `<nav class="tabbar">
+    <button data-tab="beers" class="${t === 'beers' ? 'on' : ''}">${svgIcon('list')}<span>Biere</span></button>
+    <button data-tab="rate" class="mid ${t === 'rate' ? 'on' : ''}"><div class="disc">${svgIcon('glass')}</div><span>Bewerten</span></button>
+    <button data-tab="results" class="${t === 'results' ? 'on' : ''}">${svgIcon('trophy')}<span>Ergebnisse</span></button>
+  </nav>`;
+}
+
+function cheersSection() {
+  const [w, l] = CHEERS[ui.cheer];
+  const line = CHEERS.map(c => `<span>${esc(c[0])}</span>`).join('<i>•</i>');
+  return `<section class="sec copper">
+    ${stamp(beers().length)}
+    <p class="kick">Prost auf</p>
+    <p class="cheers-lang"><span class="hl fade" data-ch="l">${esc(l)}</span></p>
+    <div class="cheers-big fade" data-ch="w">${esc(w)}</div>
+    <div class="ticker" aria-hidden="true"><div>${line}<i>•</i>${line}<i>•</i></div></div>
+    <p class="ticker-sub">Erasmus · weltweit · ${(C.date || '').slice(0, 4)}</p>
+  </section>`;
+}
+
+function footer() {
+  return `<footer class="foot"><p class="script fade" data-ch="w">${esc(cheer())}</p><small>${esc(C.title)} · ${esc(fmtDate(C.date))}</small></footer>`;
+}
+
 function render() {
   const app = $('#app');
-  document.body.classList.toggle('dark', !S.me);
-  if (!S.me) { app.innerHTML = viewWelcome(); return; }
-  const view = { beers: viewBeers, rank: viewRank, group: viewGroup, more: viewMore }[ui.tab] || viewBeers;
-  app.innerHTML = `${view()}
-    <nav class="tabs">${TABS.map(([k, n]) => `<button data-tab="${k}" class="${ui.tab === k ? 'on' : ''}"><svg viewBox="0 0 24 24" aria-hidden="true">${ICONS[k]}</svg><span>${n}</span></button>`).join('')}</nav>`;
+  if (!S.me) { app.innerHTML = topbar() + viewWelcome() + footer(); return; }
+  const v = { beers: viewBeers, rate: viewRate, results: viewResults }[ui.tab] || viewBeers;
+  app.innerHTML = topbar() + `<main>${v()}</main>` + footer() + tabbar();
 }
 
 function viewWelcome() {
-  return `<main class="welcome">
-    ${seal('big')}
-    ${C.date ? `<p class="kicker light">${fmtDate(C.date)}</p>` : ''}
-    <h1 class="spaced">${esc(C.title)}</h1>
-    ${ui.pending ? '<p class="note">Du hast einen geteilten Link geöffnet. Er wird übernommen, sobald du deinen Namen eingegeben hast.</p>' : ''}
-    <div class="form join">
-      <label>Dein Name<input id="w-name" maxlength="24" autocomplete="given-name" placeholder="z. B. Sofia"></label>
-      <button class="btn primary big" data-act="start">Los geht’s</button>
-    </div>
-  </main>`;
-}
-
-function marquee() {
-  const codes = new Set([S.me?.country, ...Object.values(S.others).map(o => o.country), ...beersList().map(b => b.country)].filter(hasCountry));
-  let words = [...new Set([...codes].map(c => cheers(c)))];
-  if (words.length < 5) words = [...new Set(words.concat(['Prost!', 'Skål!', '¡Salud!', 'Cin cin!', 'Santé!', 'Na zdrowie!', 'Kippis!', 'Şerefe!']))];
-  const line = words.map((w, i) => `<span class="c${i % 5}">${esc(w)}</span>`).join('<i>·</i>');
-  return `<div class="marquee" aria-hidden="true"><div>${line}<i>·</i>${line}<i>·</i></div></div>`;
-}
-
-function boardHTML(L) {
-  if (!L.length) return '';
-  const size = Math.max(20, Math.min(34, Math.floor(300 / L.length) - 6));
-  return `<div class="board" style="--gw:${size}px">
-    <div class="glasses">${L.map(b => {
-      const r = S.ratings[b.id];
-      return `<span class="slot ${r ? 'on' : ''}">${glass(r ? (r.srm || beerSrm(b.id) || 6) : null, r?.head)}<i>${numOf(b.id)}</i></span>`;
-    }).join('')}</div>
-    <div class="plank"></div>
-  </div>`;
+  return `<section class="hero">${seal()}</section>
+    <section class="sec paper center">${wheat()}
+      <p class="kick">Willkommen zur</p>${CUP}
+      <h1 class="big">Bierverkostung</h1>
+      <span class="sribbon">${esc(fmtDate(C.date))}</span>
+      <div class="form" style="max-width:360px;margin:24px auto 0;text-align:left">
+        <label>Dein Name<input id="w-name" maxlength="30" autocomplete="given-name" placeholder="z. B. Sofia"></label>
+        <button class="btn wide" data-act="login" style="margin-top:18px">Anmelden</button>
+      </div>
+      ${ui.pending ? '<p class="info-box">Du hast einen geteilten Link geöffnet. Biere und Bewertungen werden nach dem Anmelden übernommen.</p>' : ''}
+    </section>
+    ${cheersSection()}`;
 }
 
 function viewBeers() {
-  const L = beersList(), rated = L.filter(b => S.ratings[b.id]).length;
-  const lands = new Set(L.map(b => b.country).filter(hasCountry)).size;
-  return `<header class="hero">
-      <div class="hero-in">
-        ${seal()}
-        ${C.date ? `<p class="kicker light">${fmtDate(C.date)}</p>` : ''}
-        <h1 class="spaced">${esc(C.title)}</h1>
-        ${boardHTML(L)}
-        <p class="board-cap">${L.length ? `${rated} von ${L.length} verkostet${S.blind ? ' · blind' : ''}` : `Hallo ${esc(S.me.name)}`}</p>
+  const L = beers(), done = L.filter(b => mine(b.id)).length;
+  const regions = new Set(L.map(b => (b.region || '').trim().toLowerCase()).filter(Boolean)).size;
+  return `<section class="hero">${seal()}</section>
+    <section class="sec paper center">${wheat()}
+      <p class="kick">Willkommen, ${esc(S.me.name)}</p>${CUP}
+      <h1 class="big">Bierverkostung</h1>
+      <span class="sribbon">Erasmus · ${esc(fmtDate(C.date))}</span>
+      <div class="stats">
+        <div><b>${L.length}</b><span>Biere</span></div>
+        <div><b>${regions}</b><span>Herkünfte</span></div>
+        <div><b>${done}</b><span>Bewertet</span></div>
       </div>
-    </header>
-    ${marquee()}
-    <main>
-      ${shead(L.length ? `${plural(L.length, 'Sorte', 'Sorten')}${lands ? ` · ${plural(lands, 'Land', 'Länder')}` : ''}` : '', 'Die Biere')}
-      <div class="actions center">
-        <button class="btn primary" data-act="add">Bier hinzufügen</button>
-        ${L.length > rated ? '<button class="btn" data-act="surprise">Auslosen</button>' : ''}
-      </div>
-      ${L.length ? `<ul class="beers">${L.map(card).join('')}</ul>` : `<p class="empty">Noch keine Biere eingetragen. Name, Land und ein Foto der Flasche reichen.${C.firebase ? ' Alle anderen sehen neue Biere sofort.' : ' Danach teilst du die Liste unter „Gruppe“.'}</p>`}
-    </main>`;
-}
-
-function swatch(b, rev) {
-  const f = rev && foto(b.id), v = rev ? (S.ratings[b.id]?.srm || beerSrm(b.id)) : S.ratings[b.id]?.srm;
-  const col = v ? srmOf(v)[1] : null;
-  if (f) return `<div class="swatch photo"><img src="${f}" alt=""><span>${pad(numOf(b.id))}</span></div>`;
-  return `<div class="swatch ${col ? '' : 'none'}" ${col ? `style="background:${col};color:${textOn(col)}"` : ''}><span>${pad(numOf(b.id))}</span></div>`;
+    </section>
+    ${cheersSection()}
+    <section class="sec paper center">${wheat()}
+      <p class="kick">Auf dem Tisch</p>${CUP}
+      <h2 class="big">Unsere Biere</h2>
+      ${!FB && L.length ? '<p class="info-box">Kein Live-Abgleich eingerichtet. Über das Menü oben rechts teilst du Biere und Bewertungen per Link.</p>' : ''}
+      <div class="grid">${L.map(card).join('')}<button class="add-tile" data-act="add"><span>+</span><b>Bier hinzufügen</b></button></div>
+    </section>`;
 }
 
 function card(b) {
-  const r = S.ratings[b.id], s = score(r), rev = revealed(b);
-  const tag = rev ? [cName(b.country), b.style].filter((x, i) => i || hasCountry(b.country)).filter(Boolean).join(' · ') : 'Blind';
-  const meta = rev ? [b.abv ? `${pct(b.abv)} %` : '', b.by ? `mitgebracht von ${esc(b.by)}` : ''].filter(Boolean).join(' · ') : 'Wird nach deiner Bewertung aufgedeckt';
-  return `<li class="beer ${r ? 'done' : ''}" data-act="open" data-id="${b.id}">
-    ${swatch(b, rev)}
-    <div class="info">${tag ? `<span class="tag">${esc(tag)}</span>` : ''}<b>${esc(bname(b))}</b><small>${meta}</small></div>
-    <div class="sc">${s != null ? `<strong>${fmt(s)}</strong><span>${label(s)}</span>` : '<span class="go">Bewerten</span>'}</div>
-  </li>`;
+  const r = mine(b.id);
+  const meta = [b.region ? esc(b.style) : '', b.abv != null ? `${pct(b.abv)} %` : ''].filter(Boolean).join(' · ');
+  return `<article class="bcard" data-act="detail" data-id="${b.id}">
+    <span class="ribbon">${esc(b.name)}</span>
+    ${circle(b, { no: true, ok: !!r })}
+    <p class="script">${b.region ? 'aus ' + esc(b.region) : esc(b.style || 'Bier')}</p>
+    ${meta ? `<p class="small">${meta}</p>` : ''}
+    ${b.by ? `<p class="small"><i>mitgebracht von ${esc(b.by)}</i></p>` : ''}
+    ${r ? `<p class="score">${fmt(aspAvg(r))}<small>dein Schnitt</small></p>` : `<button class="more" data-act="rateThis" data-id="${b.id}">Bewerten</button>`}
+  </article>`;
 }
 
-function podium(list, kind) {
-  const order = [list[1], list[0], list[2]];
-  return `<div class="podium">${order.map((x, i) => x ? `
-    <button class="pod p${[2, 1, 3][i]}" data-act="open" data-detail="1" data-id="${x.b.id}">
-      ${glass(kind === 'mine' ? x.r.srm || 6 : beerSrm(x.b.id) || 6, kind === 'mine' ? x.r.head : null)}
-      <b>${esc(bname(x.b))}</b><small>${fmt(x.s)}</small>
-      <div class="block">${[2, 1, 3][i]}</div>
-    </button>` : '<div class="pod empty"></div>').join('')}</div>`;
-}
-
-function rankRow(x, i, extra = '') {
-  return `<li data-act="open" data-detail="1" data-id="${x.b.id}">
-    <span class="rk">${pad(i + 1)}</span>
-    <div class="info"><b>${esc(bname(x.b))}</b><small>${revealed(x.b) ? `${tflag(x.b.country)}${esc(cName(x.b.country))}${x.b.style ? ' · ' + esc(x.b.style) : ''}` : ''}</small>${extra}</div>
-    <div class="sc"><strong>${fmt(x.s)}</strong><span>${label(x.s)}</span></div>
-    <div class="bar"><i style="width:${Math.max(0, (x.s - 1) / 4 * 100)}%"></i></div>
-  </li>`;
-}
-
-function champions(items) {
-  return `<div class="champs">${CATS.map(c => {
-    const best = items.filter(x => x.cat[c.k]).sort((a, b) => b.cat[c.k] - a.cat[c.k])[0];
-    return `<div class="champ"><small>${c.best}</small><b>${best ? esc(bname(best.b)) : '–'}</b><span>${best ? fmt(best.cat[c.k]) : ''}</span></div>`;
-  }).join('')}</div>`;
-}
-
-function weightsPanel() {
-  const tot = CATS.reduce((s, c) => s + (S.weights[c.k] || 0), 0) || 1;
-  return `<details class="panel weights">
-    <summary>So wird der Wert berechnet</summary>
-    <p>Dein Wert ist der gewichtete Mittelwert aller Kategorien, die du bewertet hast (1 bis 5). Mit den Reglern legst du fest, wie stark jede Kategorie zählt. Das Ranking aktualisiert sich beim Loslassen.</p>
-    ${CATS.map(c => `<label class="wrow"><span>${c.n}</span><input type="range" min="0" max="40" step="5" value="${S.weights[c.k] || 0}" data-in="w" data-k="${c.k}"><em id="wv-${c.k}">${Math.round((S.weights[c.k] || 0) / tot * 100)} %</em></label>`).join('')}
-    <button class="btn small" data-act="wReset">Zurück zum Standard</button>
-  </details>`;
-}
-
-function viewRank() {
-  const L = myRanked();
-  if (!L.length) return `<main>${shead('', 'Mein Ranking')}<p class="empty">Noch nichts bewertet. Sobald du ein Bier bewertest, erscheint es hier.</p><div class="actions center"><button class="btn primary" data-tab="beers">Zu den Bieren</button></div></main>`;
-  return `<main>${shead(`${plural(L.length, 'Bier', 'Biere')} bewertet`, 'Mein Ranking')}
-    ${podium(L, 'mine')}
-    <ol class="rank">${L.map((x, i) => rankRow(x, i)).join('')}</ol>
-    <h3 class="rule">Kategoriesieger</h3>
-    ${champions(L.map(x => ({ b: x.b, cat: x.r })))}
-    ${weightsPanel()}
-    <div class="actions"><button class="btn" data-act="img" data-mode="mine">Als Bild teilen</button></div></main>`;
-}
-
-function syncBox() {
-  if (C.firebase) {
-    const st = live.ok === null ? ['wait', 'Verbinde …'] : live.ok ? ['ok', `Live im Raum „${esc(ROOM)}“`] : ['bad', 'Keine Verbindung, neuer Versuch läuft'];
-    return `<div class="panel sync"><p class="live ${st[0]}"><i></i>${st[1]}</p><p>Bewertungen und neue Biere werden alle paar Sekunden abgeglichen.</p>
-      <div class="actions"><button class="btn small" data-act="invite">Mit QR-Code einladen</button></div></div>`;
-  }
-  return `<div class="panel sync">
-    <p>Jedes Handy speichert seine eigenen Bewertungen. Zum Vergleichen schickst du deine Bewertungen als Link, zum Beispiel in eure Gruppe. Wer ihn öffnet, sieht dich in der Gruppenwertung. Der Link enthält auch deine Bierliste.</p>
-    <div class="actions">
-      <button class="btn primary small" data-act="shareMine">Bewertungen teilen</button>
-      <button class="btn small" data-act="qrMine">Als QR-Code</button>
-    </div>
-    <label class="paste">Link bekommen? Hier einfügen<span><input id="paste" placeholder="https://…#d=…" autocomplete="off"><button class="btn small" data-act="importPaste">Übernehmen</button></span></label>
+/* Bewerten */
+function aspectRow(a, d, first) {
+  const v = d[a.k];
+  return `<div class="aspect">
+    <div class="aspect-h"><h3>${a.n}</h3><em>${v || ''}</em></div>
+    <p class="q">${a.q}</p>
+    <div class="dots">${[1, 2, 3, 4, 5].map(i => `<button class="dot ${v === i ? 'on' : v > i ? 'low' : ''}" data-act="dot" data-k="${a.k}" data-v="${i}" aria-label="${a.n} ${i} von 5">${i}</button>`).join('')}</div>
+    ${first ? '<div class="ends"><span>schwach</span><span>hervorragend</span></div>' : ''}
   </div>`;
 }
 
-function awards(T, rows) {
-  const A = [];
-  // Publikumsliebling nur unter Bieren, die mindestens die Hälfte der Personen bewertet hat
-  const minVotes = Math.max(1, Math.ceil(Math.max(...rows.map(r => r.n)) / 2));
-  const fav = rows.find(r => r.n >= minVotes);
-  if (fav) A.push(['Publikumsliebling', bname(fav.b), `${fmt(fav.avg)} von ${plural(fav.n, 'Person', 'Personen')}`]);
-  const con = rows.filter(r => r.n >= 2).sort((a, b) => b.sd - a.sd)[0];
-  if (con && con.sd >= .25) {
-    const v = con.sc.map(x => x.s);
-    A.push(['Am umstrittensten', bname(con.b), `Werte von ${fmt(Math.min(...v))} bis ${fmt(Math.max(...v))}`]);
-  }
-  const love = rows.filter(r => r.n >= 2).sort((a, b) => a.sd - b.sd)[0];
-  if (love && rows.length > 2 && love !== con) A.push(['Große Einigkeit', bname(love.b), `alle Werte innerhalb von ${fmt(Math.max(...love.sc.map(x => x.s)) - Math.min(...love.sc.map(x => x.s)))} Punkten`]);
-
-  if (T.length >= 2) {
-    const given = T.map(t => ({ t, v: beersList().map(b => score(t.ratings[b.id])).filter(x => x != null) })).filter(x => x.v.length >= 3)
-      .map(x => ({ ...x, m: mean(x.v) })).sort((a, b) => a.m - b.m);
-    if (given.length >= 2) {
-      A.push(['Strengste Wertung', given[0].t.name, `vergibt im Schnitt ${fmt(given[0].m)}`]);
-      A.push(['Mildeste Wertung', given[given.length - 1].t.name, `vergibt im Schnitt ${fmt(given[given.length - 1].m)}`]);
-    }
-    const nose = T.map(t => {
-      const e = beersList().filter(b => b.abv && t.ratings[b.id]?.abv).map(b => Math.abs(t.ratings[b.id].abv - b.abv));
-      return { t, n: e.length, m: e.length ? mean(e) : 99 };
-    }).filter(x => x.n >= 2).sort((a, b) => a.m - b.m)[0];
-    if (nose) A.push(['Beste Nase', nose.t.name, `schätzt den Alkohol im Schnitt auf ${fmt(nose.m)} Prozentpunkte genau`]);
-    let twins = null;
-    for (let i = 0; i < T.length; i++) for (let j = i + 1; j < T.length; j++) {
-      const d = beersList().map(b => [score(T[i].ratings[b.id]), score(T[j].ratings[b.id])]).filter(([a, b]) => a != null && b != null).map(([a, b]) => Math.abs(a - b));
-      if (d.length >= 3 && (!twins || mean(d) < twins.m)) twins = { a: T[i], b: T[j], m: mean(d) };
-    }
-    if (twins) A.push(['Geschmackszwillinge', `${twins.a.name} & ${twins.b.name}`, `im Schnitt nur ${twins.m.toFixed(2).replace('.', ',')} Punkte auseinander`]);
-    const pat = T.filter(t => hasCountry(t.country)).map(t => {
-      const own = [], other = [];
-      for (const b of beersList()) { const s = score(t.ratings[b.id]); if (s == null) continue; (b.country === t.country ? own : other).push(s); }
-      return own.length && other.length ? { t, d: mean(own) - mean(other) } : null;
-    }).filter(Boolean).sort((a, b) => b.d - a.d)[0];
-    if (pat && pat.d >= .3) A.push(['Lokalpatriotismus', pat.t.name, `bewertet Biere aus der Heimat ${fmt(pat.d)} Punkte besser`]);
-  }
-  return A.length ? `<h3 class="rule">Auszeichnungen</h3><div class="awards">${A.map(([t, w, d]) => `<div class="award"><span class="ribbon">${t}</span><b>${esc(w)}</b><small>${esc(d)}</small></div>`).join('')}</div>` : '';
-}
-
-function countryCup(rows) {
-  const by = {};
-  for (const r of rows) if (revealed(r.b)) (by[r.b.country || 'XX'] ||= []).push(r.avg);
-  const list = Object.entries(by).map(([c, v]) => ({ c, m: mean(v), n: v.length })).sort((a, b) => b.m - a.m);
-  if (list.length < 2) return '';
-  return `<h3 class="rule">Länderwertung</h3><ol class="cup">${list.map((x, i) => `<li><span class="rk">${pad(i + 1)}</span><span class="nm">${tflag(x.c)}${esc(cName(x.c))}<small>${plural(x.n, 'Bier', 'Biere')}</small></span><span class="bar"><i style="width:${(x.m - 1) / 4 * 100}%"></i></span><b>${fmt(x.m)}</b></li>`).join('')}</ol>`;
-}
-
-function viewGroup() {
-  const { T, rows } = groupStats();
-  const all = [{ id: S.me.id, name: S.me.name, country: S.me.country, ratings: S.ratings, me: true }, ...Object.values(S.others)];
-  const total = T.reduce((s, t) => s + Object.keys(t.ratings || {}).filter(id => S.beers[id] && !S.beers[id].del).length, 0);
-  const chips = all.map(t => {
-    const n = Object.keys(t.ratings || {}).filter(id => S.beers[id] && !S.beers[id].del).length, off = S.hidden[t.id];
-    return `<button class="chip ${off ? '' : 'on'}" ${t.me ? 'disabled' : `data-act="toggleT" data-id="${t.id}"`}>${tflag(t.country)}${esc(t.name)}${t.me ? ' (du)' : ''} · ${n}</button>`;
-  }).join('');
-  return `<main>${shead(`${plural(T.length, 'Person', 'Personen')} · ${plural(total, 'Bewertung', 'Bewertungen')}`, 'Gruppe')}
-    ${syncBox()}
-    <h3 class="rule">Dabei${Object.keys(S.others).length ? '<small>Antippen, um jemanden auszublenden</small>' : ''}</h3>
-    <div class="chips">${chips}</div>
-    ${rows.length ? `
-      <h3 class="rule">Gesamtwertung</h3>
-      ${podium(rows.map(r => ({ b: r.b, s: r.avg })), 'group')}
-      <ol class="rank group">${rows.map((r, i) => rankRow({ b: r.b, s: r.avg }, i, `<div class="spread">${strip(r)}<em>${plural(r.n, 'Stimme', 'Stimmen')}</em></div>`)).join('')}</ol>
-      <p class="hint">Punkte: Wert jeder Person, deiner in Kupfer. Strich: Gruppenschnitt.</p>
-      ${awards(T, rows)}
-      ${countryCup(rows)}
-      <h3 class="rule">Kategoriesieger</h3>
-      ${champions(rows.map(r => ({ b: r.b, cat: r.cat })))}
-      <div class="actions"><button class="btn" data-act="img" data-mode="group">Gruppenranking als Bild</button><button class="btn" data-act="csv">Tabelle (CSV)</button></div>`
-    : `<p class="empty">Noch keine Wertungen. Sobald jemand ein Bier bewertet, erscheint hier die Gruppenwertung.</p>`}</main>`;
-}
-
-function viewMore() {
-  return `<main>${shead('', 'Mehr')}
-    <div class="panel form">
-      <h3>Dein Profil</h3>
-      <label>Name<input id="p-name" maxlength="24" value="${esc(S.me.name)}"></label>
-      <label>Herkunftsland (optional)<select id="p-country">${countryOptions(hasCountry(S.me.country) ? S.me.country : '', 'Keine Angabe')}</select></label>
-      <button class="btn small" data-act="saveProfile">Profil speichern</button>
-    </div>
-    <div class="panel">
-      <h3>Blindverkostung</h3>
-      <label class="switch"><input type="checkbox" id="blind" ${S.blind ? 'checked' : ''}><span></span>Namen, Länder und Fotos verbergen, bis du ein Bier bewertet hast</label>
-      <p class="hint">Für nummerierte Gläser: Wer ein Bier mitgebracht hat, schenkt es als „Bier 03“ aus. Im Blindmodus schätzt du außerdem den Alkoholgehalt. Wer am genauesten schätzt, bekommt die Auszeichnung „Beste Nase“.</p>
-    </div>
-    <div class="panel">
-      <h3>Freunde einladen</h3>
-      <p>Die anderen scannen den QR-Code und landen auf dieser Seite.</p>
-      <div class="actions"><button class="btn small" data-act="invite">QR-Code zeigen</button><button class="btn small" data-act="inviteCopy">Link kopieren</button></div>
-    </div>
-    <div class="panel">
-      <h3>Export und Sicherung</h3>
-      <div class="actions col">
-        <button class="btn small" data-act="csv">Tabelle mit allen Bewertungen (CSV für Excel)</button>
-        <button class="btn small" data-act="img" data-mode="mine">Mein Ranking als Bild</button>
-        <button class="btn small" data-act="img" data-mode="group">Gruppenranking als Bild</button>
-        <button class="btn small" data-act="backup">Komplette Sicherung mit Fotos (JSON)</button>
-        <label class="btn small">Sicherung wiederherstellen<input type="file" id="restore" accept="application/json,.json" hidden></label>
+function viewRate() {
+  const L = beers();
+  if (!L.length) return `<section class="sec paper center">${wheat()}<p class="kick">Noch leer</p>${CUP}<h1 class="big">Bewerten</h1>
+    <p class="empty">Es sind noch keine Biere eingetragen.</p><div class="btns"><button class="btn" data-act="add">Bier hinzufügen</button></div></section>`;
+  if (!ui.sel || !beer(ui.sel)) { ui.sel = (L.find(b => !mine(b.id)) || L[0]).id; ui.draft = null; }
+  if (!ui.draft) ui.draft = JSON.parse(JSON.stringify(mine(ui.sel) || {}));
+  const b = beer(ui.sel), d = ui.draft, saved = !!mine(b.id), done = L.filter(x => mine(x.id)).length;
+  const meta = [b.style, b.abv != null ? `${pct(b.abv)} %` : '', b.brewery].filter(Boolean).map(esc).join(' · ');
+  return `<section class="sec paper center">${wheat()}
+    <p class="kick">${done} von ${L.length} bewertet</p>${CUP}
+    <h1 class="big">Bewerten</h1>
+    <div class="picker" id="picker">${L.map(x => `<button class="pick ${x.id === b.id ? 'on' : ''} ${mine(x.id) ? 'done' : ''}" data-act="pick" data-id="${x.id}"><em>${mine(x.id) ? svgIcon('check').replace('<svg', '<svg width="12" height="12" stroke="currentColor" stroke-width="3" fill="none"') : pad(numOf(x.id))}</em><span>${esc(x.name)}</span></button>`).join('')}</div>
+    <div class="rcard">
+      <span class="ribbon">${esc(b.name)}</span>
+      <div style="margin-top:14px">${circle(b, { no: true })}</div>
+      ${b.region ? `<p class="script" style="margin-top:10px">aus ${esc(b.region)}</p>` : ''}
+      ${meta ? `<p class="small meta">${meta}</p>` : ''}
+      ${ASPECTS.map((a, i) => aspectRow(a, d, i === 0)).join('')}
+      <div class="fazit">
+        <p class="kick">Am Ende</p>
+        <h3>Fazit</h3>
+        <div class="stars"><button class="never ${d.f === 0 ? 'on' : ''}" data-act="fazit" data-v="0">Nie wieder</button>${[1, 2, 3, 4, 5].map(i => `<button class="star-b ${d.f >= i ? 'on' : ''}" data-act="fazit" data-v="${i}" aria-label="${i} Sterne">${STAR}</button>`).join('')}</div>
+        <p class="fazit-l">${isNum(d.f) ? FAZIT[d.f] : '&nbsp;'}</p>
+        <div class="fazit-scale"><span>0 · nie wieder</span><span>5 · wird ein Favorit</span></div>
       </div>
+      <label class="note-l" for="note">Notiz <i style="font:italic .78rem var(--serif);text-transform:none;letter-spacing:0">(freiwillig)</i></label>
+      <textarea id="note" data-in="note" rows="3" maxlength="300" placeholder="Was willst du dir merken?">${esc(d.t)}</textarea>
+      <p class="avg-now">Dein Schnitt<b>${fmt(aspAvg(d))}</b></p>
+      <button class="btn wide" data-act="saveRating">${saved ? 'Bewertung aktualisieren' : 'Bewertung speichern'}</button>
     </div>
-    <div class="panel">
-      <h3>Neu anfangen</h3>
-      <p class="hint">Löscht alle Biere, Bewertungen und Fotos auf diesem Handy.</p>
-      <button class="btn small danger" data-act="reset">Alles löschen</button>
-    </div>
-    <p class="foot">${esc(C.title)} · Die Daten bleiben auf deinem Handy${C.firebase ? ' und im gemeinsamen Raum' : ''}</p></main>`;
+  </section>`;
+}
+
+/* Ergebnisse */
+function miniStars(v) {
+  const n = Math.round(v);
+  return `<span class="mini-stars">${[1, 2, 3, 4, 5].map(i => STAR.replace('<svg', `<svg style="fill:${i <= n ? 'var(--copper)' : 'transparent'};stroke:var(--copperd);stroke-width:1.6"`)).join('')}</span>`;
+}
+
+function viewResults() {
+  const R = rows(ui.filter, ui.mode), fname = FILTERS.find(f => f[0] === ui.filter)[1];
+  const valHTML = r => ui.filter === 'f' ? `${fmt(r.v)}<br>${miniStars(r.v)}` : `${fmt(r.v)}`;
+  const top = [R[1], R[0], R[2]];
+  return `<section class="sec dark center">
+      <p class="kick">Die Ergebnisse</p>${CUP}
+      <h1 class="big">Rangliste</h1>
+      <div class="seg2"><button data-act="mode" data-v="all" class="${ui.mode === 'all' ? 'on' : ''}">Alle</button><button data-act="mode" data-v="me" class="${ui.mode === 'me' ? 'on' : ''}">Nur ich</button></div>
+    </section>
+    <section class="sec paper">
+      <p class="kick">Sortiert nach</p>
+      <div class="filters">${FILTERS.map(([k, n]) => `<button class="fchip ${ui.filter === k ? 'on' : ''}" data-act="filter" data-v="${k}">${n}</button>`).join('')}</div>
+      ${R.length ? `
+        <div class="podium">${top.map((r, i) => r ? `<div class="pod p${[2, 1, 3][i]}" data-act="detail" data-id="${r.b.id}">
+          ${circle(r.b, { medal: [2, 1, 3][i] })}
+          <span class="ribbon">${esc(r.b.name)}</span>
+          <p class="val">${fmt(r.v)}</p><small>${plural(r.n, 'Stimme', 'Stimmen')}</small>
+        </div>` : '<div></div>').join('')}</div>
+        <ol class="rlist">${R.map((r, i) => `<li data-act="detail" data-id="${r.b.id}">
+          <span class="rk">${pad(i + 1)}</span>
+          <div><b>${esc(r.b.name)}</b><small>${[r.b.region, r.b.style].filter(Boolean).map(esc).join(' · ') || '&nbsp;'}</small></div>
+          <div class="v">${valHTML(r)}<br><small>${plural(r.n, 'Stimme', 'Stimmen')}</small></div>
+          <div class="bar"><i style="width:${Math.max(0, r.v / 5 * 100)}%"></i></div>
+        </li>`).join('')}</ol>
+        <p class="small center" style="margin-top:12px"><i>${fname}: ${ui.filter === 'f' ? 'Sterne von 0 bis 5' : ui.filter === 'total' ? 'Schnitt aus allen fünf Kategorien' : 'Schnitt von 1 bis 5'}${ui.mode === 'all' ? ', gemittelt über alle' : ', nur deine Wertung'}.</i></p>`
+      : `<p class="empty">Noch keine Bewertungen${ui.mode === 'me' ? ' von dir' : ''}.</p>`}
+    </section>
+    ${R.length ? awardsSection() : ''}
+    <section class="sec paper center">${wheat()}
+      <p class="kick">Wer war dabei</p>${CUP}
+      <h2 class="big">Die Runde</h2>
+      <div class="people">${people()}</div>
+      <div class="btns"><button class="btn" data-act="img">Ergebnisse als Bild</button><button class="btn line" data-act="csv">Tabelle (CSV)</button></div>
+    </section>`;
+}
+
+function people() {
+  const count = {};
+  for (const b of beers()) for (const [u] of ratingsOf(b.id)) count[u] = (count[u] || 0) + 1;
+  const ids = new Set([...Object.keys(S.db.users || {}), ...Object.keys(count)]);
+  return [...ids].map(id => `<span class="person ${id === S.me.id ? 'me' : ''}">${esc(userName(id))}<small>${plural(count[id] || 0, 'Bier', 'Biere')}</small></span>`).join('');
+}
+
+function awardsSection() {
+  const mode = ui.mode, A = [];
+  for (const a of ASPECTS) { const r = rows(a.k, mode)[0]; if (r) A.push([a.best, r.b.name, `${fmt(r.v)} von 5`]); }
+  const F = rows('f', mode);
+  if (F.length) {
+    const minN = mode === 'all' ? Math.max(1, Math.ceil(Math.max(...F.map(r => r.n)) / 2)) : 1;
+    const fav = F.find(r => r.n >= minN);
+    if (fav) A.push(['Favorit der Runde', fav.b.name, `${fmt(fav.v)} Sterne im Fazit`]);
+    const worst = F[F.length - 1];
+    if (F.length > 1 && worst.v <= 2 && worst !== fav) A.push(['Lieber nicht nochmal', worst.b.name, `${fmt(worst.v)} Sterne im Fazit`]);
+  }
+  if (mode === 'all') {
+    const con = rows('total', 'all').filter(r => r.n >= 2).sort((x, y) => y.sd - x.sd)[0];
+    if (con && con.sd >= .3) A.push(['Am umstrittensten', con.b.name, `Werte von ${fmt(Math.min(...con.vals))} bis ${fmt(Math.max(...con.vals))}`]);
+  }
+  return `<section class="sec copper center">
+    <p class="kick">Ausgezeichnet</p>${CUP}
+    <h2 class="big">Die Sieger</h2>
+    <div class="awards">${A.map(([t, n, d]) => `<div class="award"><p class="kick">${t}</p><b>${esc(n)}</b><span>${d}</span></div>`).join('')}</div>
+  </section>`;
 }
 
 /* ---------- Overlays ---------- */
 
 const sheetEl = () => $('#sheet');
-
 function openSheet(s) {
   const was = !!ui.sheet;
   ui.sheet = s;
@@ -506,6 +531,7 @@ function openSheet(s) {
   if (!was) history.pushState({ sheet: 1 }, '');
 }
 function renderSheet() {
+  if (!ui.sheet) return;
   const el = sheetEl(), top = el.scrollTop;
   el.innerHTML = `<div class="sh">${sheetHTML()}</div>`;
   el.scrollTop = top;
@@ -516,516 +542,233 @@ function closeSheet(fromPop) {
   const el = sheetEl();
   el.classList.remove('open');
   document.body.classList.remove('locked');
-  setTimeout(() => { if (!ui.sheet) { el.hidden = true; el.innerHTML = ''; } }, 260);
+  setTimeout(() => { if (!ui.sheet) { el.hidden = true; el.innerHTML = ''; } }, 220);
   if (!fromPop && history.state?.sheet) history.back();
 }
 window.addEventListener('popstate', () => { if (ui.sheet) closeSheet(true); });
-
+const shHead = t => `<div class="sh-head"><h2>${t}</h2><button class="x" data-act="close" aria-label="Schließen">${svgIcon('close')}</button></div>`;
 function sheetHTML() {
-  const s = ui.sheet;
-  return ({ beer: sheetBeer, rate: sheetRate, detail: sheetDetail, reveal: sheetReveal, qr: sheetQR })[s.type]();
+  return ({ beer: sheetBeer, detail: sheetDetail, menu: sheetMenu, qr: sheetQR })[ui.sheet.type]();
 }
-const shHead = (kicker, title, sub = '') => `<div class="sh-head"><div>${kicker ? `<p class="kicker">${kicker}</p>` : ''}<h2>${title}</h2>${sub}</div><button class="x" data-act="close" aria-label="Schließen"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div>`;
-const beerMeta = (b, by) => `<p class="meta">${[hasCountry(b.country) ? `${flag(b.country)} ${esc(cName(b.country))}` : '', esc(b.style), b.abv ? `${pct(b.abv)} %` : ''].filter(Boolean).join(' · ')}${b.brewery ? '<br>' + esc(b.brewery) : ''}${by && b.by ? `<br>mitgebracht von ${esc(b.by)}` : ''}</p>`;
 
 function sheetBeer() {
-  const s = ui.sheet, b = s.id ? S.beers[s.id] : { by: S.me.name, country: hasCountry(S.me.country) ? S.me.country : '' };
-  const f = s.photo || (!s.rm && s.id && foto(s.id));
-  const names = [...new Set([S.me.name, ...Object.values(S.others).map(o => o.name), ...beersList().map(x => x.by)].filter(Boolean))];
-  return `${shHead('', s.id ? 'Bier bearbeiten' : 'Bier hinzufügen')}
-    <div class="form pad">
-      <div class="photo"><div id="b-prev" class="prev">${f ? `<img src="${f}" alt="">` : glass(null)}</div>
-        <div class="col"><label class="btn small">${f ? 'Foto ändern' : 'Foto hinzufügen'}<input type="file" id="b-photo" accept="image/*" hidden></label>
-        ${f ? '<button class="btn small ghost" data-act="rmPhoto">Foto entfernen</button>' : ''}</div></div>
-      <label>Name des Biers *<input id="b-name" maxlength="40" value="${esc(b.name)}" placeholder="z. B. Pilsner Urquell"></label>
-      <label>Brauerei<input id="b-brewery" maxlength="40" value="${esc(b.brewery)}"></label>
+  const s = ui.sheet, b = s.id ? beer(s.id) : { by: S.me.name };
+  const cur = s.photo || (!s.rm && s.id ? photo(b) : null);
+  const regions = [...new Set(beers().map(x => x.region).filter(Boolean))];
+  const names = [...new Set([S.me.name, ...Object.values(S.db.users || {}).map(u => u?.name)].filter(Boolean))];
+  return `${shHead(s.id ? 'Bier bearbeiten' : 'Bier hinzufügen')}
+    <div class="sh-body form">
+      <label>Name des Biers<i>Pflichtfeld</i><input id="f-name" maxlength="60" value="${esc(b.name)}" placeholder="z. B. Pilsner Urquell"></label>
+      <label>Bierart<i>freiwillig</i><input id="f-style" maxlength="40" list="dl-styles" value="${esc(b.style)}" placeholder="z. B. Pils, IPA, Stout"></label>
       <div class="row">
-        <label>Land<select id="b-country">${countryOptions(b.country, 'Land wählen')}</select></label>
-        <label class="abv">Alkohol %<input id="b-abv" type="number" inputmode="decimal" step="0.1" min="0" max="20" value="${b.abv ?? ''}"></label>
+        <label>Herkunft / Region<i>freiwillig</i><input id="f-region" maxlength="40" list="dl-regions" value="${esc(b.region)}" placeholder="z. B. Bayern"></label>
+        <label class="abv">Alkohol %<input id="f-abv" type="text" inputmode="decimal" maxlength="5" placeholder="5,0" value="${b.abv != null ? pct(b.abv) : ''}"></label>
       </div>
-      <label>Stil<select id="b-style"><option value="">Weiß nicht</option>${STYLES.map(x => `<option${x === b.style ? ' selected' : ''}>${esc(x)}</option>`).join('')}</select></label>
-      <label>Mitgebracht von<input id="b-by" maxlength="24" list="b-names" value="${esc(b.by)}"><datalist id="b-names">${names.map(n => `<option value="${esc(n)}">`).join('')}</datalist></label>
-      <button class="btn primary big" data-act="saveBeer">${s.id ? 'Änderungen speichern' : 'Zur Liste hinzufügen'}</button>
-      ${s.id ? '<button class="btn small danger" data-act="delBeer">Bier löschen</button>' : ''}
-    </div>`;
-}
-
-function scaleRow(c, d) {
-  const v = d[c.k] || 0;
-  return `<div class="cat">
-    <div class="cat-h"><h4>${c.n}</h4><em>${v ? fmtHalf(v) : ''}</em></div>
-    <p class="q">${c.q}</p>
-    <div class="scale">${[1, 2, 3, 4, 5].map(i => `<button class="seg ${v >= i ? 'full' : v >= i - .5 ? 'half' : ''}" data-act="mug" data-k="${c.k}" data-v="${i}" aria-label="${i} von 5">${i}</button>`).join('')}</div>
-  </div>`;
-}
-
-function sheetRate() {
-  const s = ui.sheet, b = S.beers[s.id], d = s.draft, rev = revealed(b), sc = score(d);
-  const done = CATS.filter(c => d[c.k]).length;
-  const cat = k => scaleRow(CATS.find(c => c.k === k), d);
-  return `${shHead(`Bier ${pad(numOf(b.id))}`, esc(bname(b)), rev ? beerMeta(b) : '<p class="meta">Blindverkostung: Die Auflösung kommt nach dem Speichern.</p>')}
-    <div class="stage">
-      <div class="stage-l">${rev && b.abv ? `<strong>${pct(b.abv)}<small>%</small></strong>` : '<strong>?</strong>'}<span>${esc(rev ? cheers(b.country) : 'Prost!')}</span></div>
-      ${bigGlass(d)}
-    </div>
-    <div class="pad">
-    <section class="blk">
-      <h3 class="rule">Optik</h3>
-      <div class="srm">${SRM.map(x => `<button class="sw ${d.srm === x[0] ? 'on' : ''}" style="--c:${x[1]}" data-act="srm" data-v="${x[0]}" aria-label="${x[2]}"></button>`).join('')}</div>
-      <p class="srm-name">${d.srm ? `${srmOf(d.srm)[2]} · SRM ${d.srm}` : 'Wähl den Farbton, der deinem Glas am nächsten kommt.'}</p>
-      <div class="opt"><span>Schaum</span><div class="chips">${HEAD.map(h => `<button class="chip ${d.head === h[0] ? 'on' : ''}" data-act="head" data-v="${h[0]}">${h[1]}</button>`).join('')}</div></div>
-      <div class="opt"><span>Klarheit</span><div class="chips">${CLARITY.map(h => `<button class="chip ${d.clarity === h[0] ? 'on' : ''}" data-act="clarity" data-v="${h[0]}">${h[1]}</button>`).join('')}</div></div>
-      ${cat('look')}
-      <p class="hint">Zweimal auf dieselbe Zahl tippen gibt einen halben Punkt weniger.</p>
-    </section>
-    <section class="blk">
-      <h3 class="rule">Geruch und Geschmack</h3>
-      ${cat('aroma')}${cat('taste')}
-      <h4 class="mt">Aromen</h4>
-      <div class="chips notes">${NOTES.map((n, i) => `<button class="chip ${d.notes.includes(i) ? 'on' : ''}" data-act="note" data-v="${i}">${n}</button>`).join('')}</div>
-    </section>
-    <section class="blk">
-      <h3 class="rule">Eindruck</h3>
-      ${cat('finish')}${cat('drink')}${cat('overall')}
-    </section>
-    ${!rev ? `<section class="blk"><h3 class="rule">Alkohol schätzen</h3><p class="q">Wer am genauesten schätzt, bekommt die Auszeichnung „Beste Nase“.</p>
-      <div class="abvguess"><input type="range" min="0" max="12" step="0.1" value="${d.abv || 5}" data-in="abv"><output id="abv-out">${fmt(d.abv || 5)} %</output></div></section>` : ''}
-    <section class="blk"><h3 class="rule">Notizen</h3><textarea data-in="text" maxlength="300" rows="3" placeholder="Was willst du dir merken?">${esc(d.text)}</textarea></section>
-    </div>
-    <div class="savebar">
-      <div class="live-score"><strong>${fmt(sc)}</strong><span>${sc != null ? label(sc) : 'Noch keine Wertung'}<br><small>${done} von 6 Kategorien</small></span></div>
-      <button class="btn primary" data-act="saveRating">Speichern</button>
+      <label>Brauerei<i>freiwillig</i><input id="f-brewery" maxlength="50" value="${esc(b.brewery)}"></label>
+      <label>Mitgebracht von<i>freiwillig</i><input id="f-by" maxlength="30" list="dl-names" value="${esc(b.by)}"></label>
+      <label>Foto<i>freiwillig</i></label>
+      <div class="photo-row"><div class="circle" id="f-prev">${cur ? `<img src="${cur}" alt="">` : GOBLET}</div>
+        <div class="col"><label class="btn small line">Foto wählen<input type="file" id="f-photo" accept="image/*" hidden></label>
+        ${cur ? '<button class="more" data-act="rmPhoto">Foto entfernen</button>' : ''}</div></div>
+      <datalist id="dl-styles">${STYLES.map(x => `<option value="${esc(x)}">`).join('')}</datalist>
+      <datalist id="dl-regions">${regions.map(x => `<option value="${esc(x)}">`).join('')}</datalist>
+      <datalist id="dl-names">${names.map(x => `<option value="${esc(x)}">`).join('')}</datalist>
+      <div class="btns col"><button class="btn" data-act="saveBeer">${s.id ? 'Änderungen speichern' : 'Bier hinzufügen'}</button>
+      ${s.id ? '<button class="btn danger" data-act="delBeer">Bier löschen</button>' : ''}</div>
     </div>`;
 }
 
 function sheetDetail() {
-  const b = S.beers[ui.sheet.id], rev = revealed(b), my = S.ratings[b.id], f = rev && foto(b.id);
-  const { rows } = groupStats(), row = rows.find(r => r.b.id === b.id);
-  const others = row ? row.sc.filter(x => !x.t.me) : [];
-  const ms = score(my);
-  const v = rev ? beerSrm(b.id) : my?.srm, col = v ? srmOf(v)[1] : '#3a2b22', ink = textOn(col);
-  const noteCount = {};
-  if (row) row.sc.forEach(x => (x.r.notes || []).forEach(n => { noteCount[n] = (noteCount[n] || 0) + 1; }));
-  const topNotes = Object.entries(noteCount).sort((a, b) => b[1] - a[1]).slice(0, 8);
-  const headTag = HEAD.find(h => h[0] === my?.head)?.[3];
-  const main = ms != null ? ['Deine Wertung', ms] : row ? ['Gruppe', row.avg] : null;
-  return `${shHead(`Bier ${pad(numOf(b.id))}`, esc(bname(b)), rev ? beerMeta(b, true) : '')}
-    <div class="pad">
-    <div class="tile" style="background:${col};color:${ink}">
-      <div class="tile-l"><small>${main ? main[0] : 'Noch nicht bewertet'}</small><strong>${main ? fmt(main[1]) : '–'}</strong><span>${main ? label(main[1]) : ''}</span>
-        ${row && ms != null && others.length ? `<em>Gruppe ${fmt(row.avg)} · ${plural(row.n, 'Stimme', 'Stimmen')}</em>` : ''}</div>
-      ${f ? `<img src="${f}" alt="">` : ''}
-    </div>
-    ${my || row ? radar(my, others.length ? row.cat : (!my ? row?.cat : null)) : ''}
-    ${my ? `<table class="breakdown">${CATS.map(c => `<tr><th>${c.n}</th><td>${my[c.k] ? fmtHalf(my[c.k]) : '–'}</td>${others.length ? `<td class="g">${fmt(row.cat[c.k])}</td>` : ''}</tr>`).join('')}
-      ${others.length ? '<tr class="lg"><th></th><td>du</td><td class="g">Gruppe</td></tr>' : ''}</table>` : ''}
-    ${my ? `<div class="mynotes">
-      ${my.srm ? `<span class="tagline"><i style="background:${srmOf(my.srm)[1]}"></i>${srmOf(my.srm)[2]}</span>` : ''}
-      ${headTag ? `<span class="tagline">${headTag}</span>` : ''}
-      ${my.clarity ? `<span class="tagline">${CLARITY.find(h => h[0] === my.clarity)?.[1]}</span>` : ''}
-      ${(my.notes || []).map(n => `<span class="tagline">${NOTES[n] || ''}</span>`).join('')}
-      ${my.abv && b.abv ? `<span class="tagline">Geschätzt ${fmt(my.abv)} %, tatsächlich ${pct(b.abv)} %</span>` : ''}
-      ${my.text ? `<p class="quote">„${esc(my.text)}“</p>` : ''}</div>` : ''}
-    ${topNotes.length && others.length ? `<h3 class="rule">Aromen der Gruppe</h3><div class="chips">${topNotes.map(([n, k]) => `<span class="chip on">${NOTES[n]} · ${k}</span>`).join('')}</div>` : ''}
-    ${others.length ? `<h3 class="rule">Die anderen</h3><ul class="others">${others.sort((a, b) => b.s - a.s).map(x => `<li><span>${tflag(x.t.country)}${esc(x.t.name)}</span><b>${fmt(x.s)}</b>${rev && x.r.text ? `<p>„${esc(x.r.text)}“</p>` : ''}</li>`).join('')}</ul>` : ''}
-    <div class="actions col">
-      <button class="btn primary" data-act="rate" data-id="${b.id}">${my ? 'Bewertung ändern' : 'Dieses Bier bewerten'}</button>
-      ${rev ? `<button class="btn small" data-act="editBeer" data-id="${b.id}">Angaben zum Bier bearbeiten</button>` : ''}
-    </div>
+  const b = beer(ui.sheet.id);
+  if (!b) return `${shHead('Bier')}<div class="sh-body"><p class="empty">Dieses Bier wurde gelöscht.</p></div>`;
+  const all = ratingsOf(b.id), my = mine(b.id);
+  const meta = [b.style, b.abv != null ? `${pct(b.abv)} %` : '', b.brewery].filter(Boolean).map(esc).join(' · ');
+  const statRow = (label, key, max) => {
+    const vals = all.map(([, r]) => val(r, key)).filter(isNum);
+    if (!vals.length) return '';
+    const m = mean(vals), me = my ? val(my, key) : null;
+    return `<div class="dstat"><span>${label}</span><div class="bar"><i style="width:${m / max * 100}%"></i>${isNum(me) ? `<u style="left:${me / max * 100}%"></u>` : ''}</div><b>${fmt(m)}</b></div>`;
+  };
+  const notes = all.filter(([, r]) => r.t || isNum(r.f));
+  return `${shHead(`Bier ${pad(numOf(b.id))}`)}
+    <div class="sh-body detail">
+      ${circle(b)}
+      <span class="ribbon">${esc(b.name)}</span>
+      ${b.region ? `<p class="script" style="margin-top:10px">aus ${esc(b.region)}</p>` : ''}
+      ${meta ? `<p class="small">${meta}</p>` : ''}
+      ${b.by ? `<p class="small"><i>mitgebracht von ${esc(b.by)}</i></p>` : ''}
+      <div class="btns"><button class="btn" data-act="rateThis" data-id="${b.id}">${my ? 'Bewertung ändern' : 'Jetzt bewerten'}</button><button class="btn line" data-act="editBeer" data-id="${b.id}">Bearbeiten</button></div>
+      ${all.length ? `<div class="dstats">
+        <h3 class="sub-h">Bewertungen · ${plural(all.length, 'Stimme', 'Stimmen')}</h3>
+        ${statRow('Gesamt', 'total', 5)}${ASPECTS.map(a => statRow(a.n, a.k, 5)).join('')}${statRow('Fazit', 'f', 5)}
+        <p class="legend"><i></i>Schnitt aller${my ? '<u></u>deine Wertung' : ''}</p>
+      </div>` : '<p class="empty">Noch nicht bewertet.</p>'}
+      ${notes.length ? `<h3 class="sub-h">Fazit und Notizen</h3><ul class="comments">${notes.map(([u, r]) => `<li><b>${esc(userName(u))}</b>${isNum(r.f) ? ` · ${miniStars(r.f)} <i>${FAZIT[r.f]}</i>` : ''}${r.t ? `<p>„${esc(r.t)}“</p>` : ''}</li>`).join('')}</ul>` : ''}
     </div>`;
 }
 
-function sheetReveal() {
-  const b = S.beers[ui.sheet.id], r = S.ratings[b.id], s = score(r), f = foto(b.id);
-  const guess = r.abv && b.abv ? `<p class="guess">Deine Schätzung ${fmt(r.abv)} %, tatsächlich ${pct(b.abv)} %</p>` : '';
-  return `<div class="reveal">
-    <button class="x" data-act="close" aria-label="Schließen"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
-    <p class="kicker light">Bier ${pad(numOf(b.id))} war</p>
-    ${f ? `<img src="${f}" alt="">` : glass(r.srm || 6, r.head)}
-    <h2 class="spaced">${esc(b.name)}</h2>
-    ${beerMeta(b, true)}
-    ${guess}
-    <p class="you"><strong>${fmt(s)}</strong><span>${label(s)}</span></p>
-    <p class="cheers">${esc(cheers(b.country))}</p>
-    <div class="actions center">${beersList().some(x => !S.ratings[x.id]) ? '<button class="btn primary" data-act="surprise">Nächstes Bier</button>' : ''}<button class="btn light" data-act="close">Fertig</button></div>
-  </div>`;
+function sheetMenu() {
+  const pending = S.queue.length;
+  return `${shHead('Menü')}
+    <div class="sh-body">
+      <h3 class="sub-h">Dein Name</h3>
+      <div class="form paste"><input id="m-name" maxlength="30" value="${esc(S.me.name)}"><button class="btn small" data-act="rename">Ändern</button></div>
+      <h3 class="sub-h">Freunde einladen</h3>
+      <p class="small">Die anderen scannen den Code mit der Handykamera und melden sich mit ihrem Namen an.</p>
+      <div class="qr">${QR.svg(inviteUrl()) || ''}</div>
+      <div class="btns"><button class="btn line small" data-act="copyInvite">Link kopieren</button></div>
+      <h3 class="sub-h">Abgleich</h3>
+      ${FB ? `<p class="small">${sync.ok ? `Live verbunden mit dem Raum „${esc(ROOM)}“. Neue Biere und Bewertungen erscheinen bei allen sofort.` : 'Gerade keine Verbindung. Änderungen werden nachgereicht, sobald das Netz wieder da ist.'}${pending ? ` (${plural(pending, 'Änderung', 'Änderungen')} offen)` : ''}</p>`
+      : `<p class="small">Kein Live-Abgleich eingerichtet. Teile Biere und Bewertungen per Link. Wer ihn öffnet, bekommt alles auf sein Handy.</p>
+        <div class="btns"><button class="btn small" data-act="shareLink">Link teilen</button><button class="btn line small" data-act="qrLink">Als QR-Code</button></div>
+        <div class="form paste" style="margin-top:14px"><input id="m-paste" placeholder="Link hier einfügen" autocomplete="off"><button class="btn small line" data-act="importPaste">Übernehmen</button></div>`}
+      <h3 class="sub-h">Herunterladen</h3>
+      <div class="btns col"><button class="btn small" data-act="img">Ergebnisse als Bild</button><button class="btn small line" data-act="csv">Alle Bewertungen als Tabelle (CSV)</button><button class="btn small line" data-act="backup">Sicherung (JSON)</button></div>
+      <h3 class="sub-h">Abmelden</h3>
+      <p class="small">Deine Bewertungen bleiben gespeichert. Mit demselben Namen meldest du dich wieder an.</p>
+      <div class="btns col"><button class="btn small line" data-act="logout">Abmelden</button>
+      <button class="btn small danger" data-act="wipe">Alle Daten auf diesem Handy löschen</button></div>
+    </div>`;
 }
 
 function sheetQR() {
-  const s = ui.sheet, code = window.QR ? QR.svg(s.text) : null;
-  return `${shHead('', esc(s.title))}
-    <div class="pad">
-    <div class="qr">${code || '<p>Zu viele Daten für einen QR-Code. Bitte stattdessen „Teilen“ nutzen.</p>'}</div>
-    <p class="hint center">${esc(s.hint || '')}</p>
-    <div class="actions center"><button class="btn" data-act="copyQR">Link kopieren</button>${navigator.share ? '<button class="btn" data-act="shareQR">Teilen</button>' : ''}</div>
-    </div>`;
+  const s = ui.sheet, code = QR.svg(s.text);
+  return `${shHead(esc(s.title))}<div class="sh-body center">
+    <div class="qr">${code || '<p>Zu viele Daten für einen QR-Code. Bitte den Link teilen.</p>'}</div>
+    <p class="small">${esc(s.hint)}</p></div>`;
 }
 
 /* ---------- Aktionen ---------- */
 
-function startRate(id) {
-  const r = S.ratings[id];
-  const draft = r ? JSON.parse(JSON.stringify(r)) : { notes: [] };
-  draft.notes ||= [];
-  openSheet({ type: 'rate', id, draft });
-}
-
-function openBeer(id, detail) {
-  if (!S.beers[id]) return;
-  if (S.ratings[id] || detail) openSheet({ type: 'detail', id });
-  else startRate(id);
+function goRate(id) {
+  ui.sel = id; ui.draft = null; ui.tab = 'rate'; localStorage.setItem(TK, 'rate');
+  if (ui.sheet) closeSheet();
+  render(); window.scrollTo(0, 0);
 }
 
 const ACTIONS = {
-  start() {
+  login() {
     const name = $('#w-name').value.trim();
     if (!name) { toast('Bitte gib deinen Namen ein'); $('#w-name').focus(); return; }
-    S.me = { id: rid(), name, country: '' };
-    save(); render();
-    if (ui.pending) { const p = ui.pending; ui.pending = null; importData(p); }
-    else toast(`Willkommen, ${name}`);
+    const ex = Object.entries(S.db.users || {}).find(([, u]) => (u?.name || '').trim().toLowerCase() === name.toLowerCase());
+    let id = rid();
+    if (ex && confirm(`„${ex[1].name}“ ist schon angemeldet. Bist du das? Dann geht es mit deinen bisherigen Bewertungen weiter.`)) id = ex[0];
+    S.me = { id, name };
+    write(`data/users/${id}`, { name, at: Date.now() });
+    ui.tab = 'beers'; render(); window.scrollTo(0, 0);
+    toast(`Willkommen, ${name}`);
+    if (ui.pending) { const p = ui.pending; ui.pending = null; importLink(p); }
   },
   add() { openSheet({ type: 'beer' }); },
-  open(el) { openBeer(el.dataset.id, el.dataset.detail === '1'); },
-  rate(el) { startRate(el.dataset.id); },
+  detail(el) { openSheet({ type: 'detail', id: el.dataset.id }); },
   editBeer(el) { openSheet({ type: 'beer', id: el.dataset.id }); },
+  rateThis(el) { goRate(el.dataset.id); },
   close() { closeSheet(); },
-  surprise() {
-    const open = beersList().filter(b => !S.ratings[b.id]);
-    if (!open.length) { toast('Du hast alle Biere bewertet'); return; }
-    const b = open[Math.floor(Math.random() * open.length)];
-    startRate(b.id);
-    toast(`Als Nächstes: Bier ${pad(numOf(b.id))}`);
+  menu() { openSheet({ type: 'menu' }); },
+  pick(el) { ui.sel = el.dataset.id; ui.draft = null; render(); },
+  dot(el) {
+    const d = ui.draft, k = el.dataset.k, v = +el.dataset.v;
+    if (d[k] === v) delete d[k]; else d[k] = v;
+    if (navigator.vibrate) navigator.vibrate(8);
+    render();
   },
-  saveBeer() {
-    const s = ui.sheet, name = $('#b-name').value.trim();
-    if (!name) { toast('Gib dem Bier einen Namen'); $('#b-name').focus(); return; }
-    let id = s.id;
-    if (!id) {
-      id = slug(name);
-      if (S.beers[id] && !S.beers[id].del) { toast('Dieses Bier steht schon auf der Liste'); return; }
-    }
-    const prev = s.id ? S.beers[id] : null, abv = parseFloat(String($('#b-abv').value).replace(',', '.'));
-    S.beers[id] = {
-      id, name, brewery: $('#b-brewery').value.trim(), country: $('#b-country').value, style: $('#b-style').value,
-      abv: abv > 0 && abv < 30 ? Math.round(abv * 10) / 10 : null, by: $('#b-by').value.trim(),
-      byId: prev?.byId || S.me.id, at: prev?.at || Date.now(), upd: Date.now(), del: false
+  fazit(el) {
+    const d = ui.draft, v = +el.dataset.v;
+    d.f = d.f === v ? null : v;
+    render();
+  },
+  saveRating() {
+    const d = ui.draft, b = beer(ui.sel);
+    const missing = ASPECTS.filter(a => !isNum(d[a.k])).map(a => a.n);
+    if (!isNum(d.f)) missing.push('Fazit');
+    if (missing.length) { toast(`Noch offen: ${missing.join(', ')}`, 3000); return; }
+    const r = { at: Date.now(), f: d.f, t: (d.t || '').trim().slice(0, 300) };
+    ASPECTS.forEach(a => { r[a.k] = d[a.k]; });
+    write(`data/ratings/${b.id}/${S.me.id}`, r);
+    toast(`${cheer()} Bewertung gespeichert`);
+    const next = beers().find(x => !mine(x.id));
+    ui.sel = next ? next.id : b.id; ui.draft = null;
+    render();
+    $('#picker')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  },
+  async saveBeer() {
+    const s = ui.sheet, name = $('#f-name').value.trim();
+    if (!name) { toast('Der Name ist ein Pflichtfeld'); $('#f-name').focus(); return; }
+    const id = s.id || rid(), prev = s.id ? S.db.beers[id] : null, now = Date.now();
+    const abv = parseFloat(String($('#f-abv').value).replace(',', '.'));
+    const b = {
+      name, style: $('#f-style').value.trim(), region: $('#f-region').value.trim(), brewery: $('#f-brewery').value.trim(),
+      by: $('#f-by').value.trim(), abv: abv >= 0 && abv < 30 ? Math.round(abv * 10) / 10 : null,
+      byId: prev?.byId || S.me.id, at: prev?.at || now, upd: now, del: false,
+      photo: !!prev?.photo, photoAt: prev?.photoAt || 0
     };
-    if (s.photo && setFoto(id, s.photo)) { S.myFotos[id] = 1; uploadFoto(id); }
-    else if (s.rm) { localStorage.removeItem(FK + id); delete S.myFotos[id]; }
-    save(); closeSheet(); render();
+    if (s.photo) { b.photo = true; b.photoAt = now; storePhoto(id, s.photo, now); write(`photos/${id}`, s.photo); }
+    else if (s.rm) { b.photo = false; b.photoAt = now; localStorage.removeItem(PK + id); write(`photos/${id}`, null); }
+    write(`data/beers/${id}`, b);
+    closeSheet(); render();
     toast(prev ? 'Gespeichert' : `${name} steht auf der Liste`);
   },
   delBeer() {
-    const b = S.beers[ui.sheet.id];
-    if (!confirm(`„${b.name}“ von der Liste löschen? Die Bewertungen dafür zählen dann nicht mehr.`)) return;
-    S.beers[b.id] = { ...b, del: true, upd: Date.now() };
-    localStorage.removeItem(FK + b.id);
-    save(); closeSheet(); render();
+    const id = ui.sheet.id, b = S.db.beers[id];
+    if (!confirm(`„${b.name}“ löschen? Das Bier verschwindet bei allen.`)) return;
+    write(`data/beers/${id}`, { ...b, del: true, upd: Date.now() });
+    closeSheet(); render();
   },
-  rmPhoto() { ui.sheet.photo = null; ui.sheet.rm = true; renderBeerPreview(); },
-  mug(el) {
-    const d = ui.sheet.draft, k = el.dataset.k, v = +el.dataset.v, cur = d[k] || 0;
-    if (cur === v) d[k] = v === 1 ? 0 : v - .5; else d[k] = v;
-    if (!d[k]) delete d[k];
-    if (navigator.vibrate) navigator.vibrate(8);
-    renderSheet();
-  },
-  srm(el) { const d = ui.sheet.draft, v = +el.dataset.v; d.srm = d.srm === v ? null : v; renderSheet(); },
-  head(el) { const d = ui.sheet.draft; d.head = d.head === el.dataset.v ? '' : el.dataset.v; renderSheet(); },
-  clarity(el) { const d = ui.sheet.draft; d.clarity = d.clarity === el.dataset.v ? '' : el.dataset.v; renderSheet(); },
-  note(el) {
-    const d = ui.sheet.draft, v = +el.dataset.v;
-    d.notes = d.notes.includes(v) ? d.notes.filter(x => x !== v) : [...d.notes, v];
-    el.classList.toggle('on');
-  },
-  saveRating() {
-    const s = ui.sheet, b = S.beers[s.id], d = s.draft;
-    if (!CATS.some(c => d[c.k])) { toast('Bewerte zuerst mindestens eine Kategorie'); return; }
-    const wasRevealed = revealed(b);
-    if (!wasRevealed && d.abv == null) d.abv = 5;
-    S.ratings[b.id] = { ...d, at: Date.now() };
-    save(); render();
-    if (!wasRevealed) { openSheet({ type: 'reveal', id: b.id }); return; }
-    closeSheet();
-    toast(`${cheers(b.country)} Gespeichert.`);
-  },
-  async shareMine() {
-    const url = await encodeLink();
-    share(`Bierbewertungen von ${S.me.name}`, `Meine Bewertungen von der ${C.title}. Öffnen, um sie in deine Gruppenwertung zu übernehmen:`, url);
-  },
-  async qrMine() {
-    const url = await encodeLink();
-    openSheet({ type: 'qr', title: 'Meine Bewertungen', text: url, hint: 'Lass jemanden scannen. Deine Biere und Bewertungen landen dann auf dem anderen Handy.' });
-  },
-  importPaste() {
-    const v = $('#paste').value.trim(), m = v.match(/#d=([A-Za-z0-9_-]+)/);
-    if (!m) { toast('Das sieht nicht nach einem Bewertungslink aus'); return; }
-    importData(m[1]);
-  },
-  toggleT(el) {
-    const id = el.dataset.id;
-    if (S.hidden[id]) delete S.hidden[id]; else S.hidden[id] = true;
-    persist(); render();
-  },
-  invite() { openSheet({ type: 'qr', title: 'Zur Verkostung', text: inviteUrl(), hint: 'Mit der Handykamera scannen, um die Seite zu öffnen.' }); },
-  inviteCopy() { copy(inviteUrl()); },
-  copyQR() { copy(ui.sheet.text); },
-  shareQR() { share(ui.sheet.title, '', ui.sheet.text); },
-  csv() { exportCSV(); },
-  img(el) { shareImage(el.dataset.mode); },
-  backup() {
-    const fotos = {};
-    for (const b of Object.values(S.beers)) { const f = foto(b.id); if (f) fotos[b.id] = f; }
-    download(`bierverkostung-sicherung-${new Date().toISOString().slice(0, 10)}.json`, JSON.stringify({ app: 'beer-tasting', v: 1, state: S, fotos }), 'application/json');
-  },
-  saveProfile() {
-    const name = $('#p-name').value.trim();
+  rmPhoto() { ui.sheet.photo = null; ui.sheet.rm = true; $('#f-prev').innerHTML = GOBLET; },
+  mode(el) { ui.mode = el.dataset.v; render(); },
+  filter(el) { ui.filter = el.dataset.v; const x = window.scrollY; render(); window.scrollTo(0, x); },
+  rename() {
+    const name = $('#m-name').value.trim();
     if (!name) { toast('Der Name darf nicht leer sein'); return; }
-    S.me.name = name; S.me.country = $('#p-country').value;
-    save(); render(); toast('Profil gespeichert');
+    S.me.name = name; write(`data/users/${S.me.id}`, { name, at: Date.now() });
+    render(); renderSheet(); toast('Name geändert');
   },
-  wReset() { S.weights = { ...DEF_W }; persist(); render(); },
-  reset() {
-    if (!confirm('Wirklich alle Biere, Bewertungen und Fotos auf diesem Handy löschen?')) return;
-    for (const k of Object.keys(localStorage)) if (k.startsWith(FK)) localStorage.removeItem(k);
-    localStorage.removeItem(KEY);
-    S = fresh(); render();
+  copyInvite() { copy(inviteUrl()); },
+  async shareLink() {
+    const u = await shareLink();
+    if (navigator.share) { try { await navigator.share({ title: C.title, text: 'Biere und Bewertungen von der Bierverkostung:', url: u }); return; } catch (e) { if (e.name === 'AbortError') return; } }
+    copy(u);
+  },
+  async qrLink() { openSheet({ type: 'qr', title: 'Biere und Bewertungen', text: await shareLink(), hint: 'Lass jemanden scannen. Biere und Bewertungen landen dann auf dem anderen Handy.' }); },
+  importPaste() {
+    const m = $('#m-paste').value.match(/#d=([A-Za-z0-9_-]+)/);
+    if (!m) { toast('Das ist kein gültiger Link'); return; }
+    closeSheet(); importLink(m[1]);
+  },
+  img() { exportImage(); },
+  csv() { exportCSV(); },
+  backup() { download(`bierverkostung-sicherung-${today()}.json`, JSON.stringify({ app: 'bierverkostung', v: 1, db: S.db }), 'application/json'); },
+  logout() { S.me = null; persist(); closeSheet(); render(); window.scrollTo(0, 0); },
+  wipe() {
+    if (!confirm('Wirklich alle Daten auf diesem Handy löschen? Im Live-Abgleich bleiben sie für die anderen erhalten.')) return;
+    for (const k of Object.keys(localStorage)) if (k.startsWith('bv-')) localStorage.removeItem(k);
+    location.reload();
   }
 };
 
-function renderBeerPreview() {
-  const s = ui.sheet, f = s.photo || (!s.rm && s.id && foto(s.id));
-  $('#b-prev').innerHTML = f ? `<img src="${f}" alt="">` : glass(null);
-}
-
 document.addEventListener('click', e => {
   const el = e.target.closest('[data-act],[data-tab]');
-  if (!el || el.disabled) return;
+  if (!el) return;
   if (el.dataset.tab) {
-    ui.tab = el.dataset.tab; localStorage.setItem(UK, ui.tab);
-    if (ui.sheet) closeSheet();
+    ui.tab = el.dataset.tab; localStorage.setItem(TK, ui.tab);
+    if (ui.tab === 'rate') ui.draft = null;
     render(); window.scrollTo(0, 0); return;
   }
   const f = ACTIONS[el.dataset.act];
-  if (f) { e.preventDefault(); f(el); }
+  if (f) { e.preventDefault(); e.stopPropagation(); f(el); }
 });
-
-document.addEventListener('keydown', e => {
-  if (e.key === 'Enter' && e.target.id === 'w-name') ACTIONS.start();
-});
-
-document.addEventListener('input', e => {
-  const t = e.target, d = ui.sheet?.draft;
-  if (t.dataset.in === 'text' && d) d.text = t.value;
-  if (t.dataset.in === 'abv' && d) { d.abv = +t.value; $('#abv-out').textContent = fmt(d.abv) + ' %'; }
-  if (t.dataset.in === 'w') {
-    const w = { ...S.weights, [t.dataset.k]: +t.value }, tot = CATS.reduce((s, c) => s + (w[c.k] || 0), 0) || 1;
-    CATS.forEach(c => { $('#wv-' + c.k).textContent = Math.round((w[c.k] || 0) / tot * 100) + ' %'; });
-  }
-});
-
+document.addEventListener('keydown', e => { if (e.key === 'Enter' && e.target.id === 'w-name') ACTIONS.login(); });
+document.addEventListener('input', e => { if (e.target.dataset.in === 'note' && ui.draft) ui.draft.t = e.target.value; });
 document.addEventListener('change', async e => {
-  const t = e.target;
-  if (t.id === 'b-photo' && t.files[0]) {
-    try { ui.sheet.photo = await shrink(t.files[0]); ui.sheet.rm = false; renderBeerPreview(); }
+  if (e.target.id === 'f-photo' && e.target.files[0]) {
+    try { ui.sheet.photo = await shrink(e.target.files[0]); ui.sheet.rm = false; $('#f-prev').innerHTML = `<img src="${ui.sheet.photo}" alt="">`; }
     catch (err) { toast('Das Foto konnte nicht gelesen werden'); }
   }
-  if (t.dataset.in === 'w') { S.weights[t.dataset.k] = +t.value; persist(); render(); }
-  if (t.id === 'blind') { S.blind = t.checked; persist(); render(); toast(S.blind ? 'Blindmodus an' : 'Blindmodus aus'); }
-  if (t.id === 'restore' && t.files[0]) {
-    try {
-      const data = JSON.parse(await t.files[0].text());
-      if (data.app !== 'beer-tasting' || !data.state) throw new Error('format');
-      if (!confirm('Alles auf diesem Handy durch die Sicherung ersetzen?')) return;
-      S = Object.assign(fresh(), data.state);
-      for (const [id, f] of Object.entries(data.fotos || {})) setFoto(id, f);
-      save(); render(); toast('Sicherung wiederhergestellt');
-    } catch (err) { toast('Das ist keine gültige Sicherungsdatei'); }
-    t.value = '';
-  }
 });
-
-/* ---------- Fotos ---------- */
-
-async function shrink(file, max = 560) {
-  const url = URL.createObjectURL(file);
-  try {
-    const img = await new Promise((ok, no) => { const i = new Image(); i.onload = () => ok(i); i.onerror = no; i.src = url; });
-    const k = Math.min(1, max / Math.max(img.naturalWidth, img.naturalHeight));
-    const c = document.createElement('canvas');
-    c.width = Math.round(img.naturalWidth * k); c.height = Math.round(img.naturalHeight * k);
-    c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
-    return c.toDataURL('image/jpeg', .72);
-  } finally { URL.revokeObjectURL(url); }
-}
-
-/* ---------- Teilen über Links ---------- */
-
-const NUM = v => (v == null || v === '' || isNaN(v)) ? 0 : +v;
-function pack() {
-  return {
-    v: 1, t: [S.me.id, S.me.name, S.me.country || ''],
-    b: Object.values(S.beers).map(b => [b.id, b.name, b.brewery || '', b.country || '', b.style || '', NUM(b.abv), b.by || '', b.byId || '', b.at || 0, b.upd || 0, b.del ? 1 : 0]),
-    r: Object.entries(S.ratings).filter(([id]) => S.beers[id]).map(([id, r]) => [id, ...CATS.map(c => NUM(r[c.k])), NUM(r.srm), r.head || '', r.clarity || '',
-      (r.notes || []).map(n => n.toString(36)).join(''), NUM(r.abv), r.text || ''])
-  };
-}
-
-const ID_RE = /^[a-z0-9-]{1,48}$/, TID_RE = /^[a-z0-9]{3,16}$/;
-const str = (v, n) => String(v ?? '').slice(0, n);
-const num = (v, lo, hi) => { v = +v; return v >= lo && v <= hi ? v : 0; };
-
-function merge(p) {
-  if (!p || !Array.isArray(p.t) || !TID_RE.test(p.t[0])) throw new Error('format');
-  let newBeers = 0;
-  for (const a of p.b || []) {
-    if (!Array.isArray(a) || !ID_RE.test(a[0])) continue;
-    const b = {
-      id: a[0], name: str(a[1], 40), brewery: str(a[2], 40), country: str(a[3], 2), style: str(a[4], 30),
-      abv: num(a[5], 0, 30) || null, by: str(a[6], 24), byId: str(a[7], 16), at: num(a[8], 0, 9e15), upd: num(a[9], 0, 9e15), del: !!a[10]
-    };
-    const ex = S.beers[b.id];
-    if (!ex || b.upd > (ex.upd || 0)) { if (!ex && !b.del) newBeers++; S.beers[b.id] = b; }
-  }
-  const [tid, tname, tc] = p.t;
-  let count = 0;
-  if (tid !== S.me.id) {
-    const ratings = {};
-    for (const a of p.r || []) {
-      if (!Array.isArray(a) || !ID_RE.test(a[0])) continue;
-      const r = {};
-      CATS.forEach((c, i) => { const v = num(a[1 + i], 0, 5); if (v) r[c.k] = v; });
-      r.srm = num(a[7], 0, 40) || null; r.head = str(a[8], 8); r.clarity = str(a[9], 8);
-      r.notes = [...str(a[10], 36)].map(ch => parseInt(ch, 36)).filter(n => n >= 0 && n < NOTES.length);
-      r.abv = num(a[11], 0, 30) || null; r.text = str(a[12], 300);
-      ratings[a[0]] = r; count++;
-    }
-    if (count || S.others[tid]) S.others[tid] = { id: tid, name: str(tname, 24) || 'Gast', country: str(tc, 2), ratings };
-  }
-  return { name: str(tname, 24), newBeers, count, self: tid === S.me.id };
-}
-
-const b64u = bytes => { let s = ''; for (let i = 0; i < bytes.length; i++) s += String.fromCharCode(bytes[i]); return btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, ''); };
-const unb64u = s => { const bin = atob(s.replace(/-/g, '+').replace(/_/g, '/')); return Uint8Array.from(bin, c => c.charCodeAt(0)); };
-const pipe = async (bytes, stream) => new Uint8Array(await new Response(new Blob([bytes]).stream().pipeThrough(stream)).arrayBuffer());
-const baseUrl = () => location.origin + location.pathname;
-const inviteUrl = () => baseUrl() + (new URLSearchParams(location.search).get('room') ? `?room=${encodeURIComponent(ROOM)}` : '');
-
-async function encodeLink() {
-  let bytes = new TextEncoder().encode(JSON.stringify(pack())), pre = 'j';
-  if (window.CompressionStream) { try { bytes = await pipe(bytes, new CompressionStream('deflate-raw')); pre = 'z'; } catch (e) { /* unkomprimiert */ } }
-  return inviteUrl() + '#d=' + pre + b64u(bytes);
-}
-async function decodeData(s) {
-  let bytes = unb64u(s.slice(1));
-  if (s[0] === 'z') bytes = await pipe(bytes, new DecompressionStream('deflate-raw'));
-  return JSON.parse(new TextDecoder().decode(bytes));
-}
-
-async function importData(s) {
-  try {
-    const res = merge(await decodeData(s));
-    save(); render();
-    if (res.self) toast('Das ist dein eigener Link');
-    else toast(`${res.name} übernommen: ${plural(res.count, 'Bewertung', 'Bewertungen')}${res.newBeers ? `, ${plural(res.newBeers, 'neues Bier', 'neue Biere')}` : ''}`, 3500);
-    if (res.count && ui.tab !== 'group' && !res.self) { ui.tab = 'group'; localStorage.setItem(UK, 'group'); render(); }
-  } catch (e) { toast('Dieser Link konnte nicht gelesen werden'); }
-}
-
-function checkHash() {
-  const m = location.hash.match(/^#d=([A-Za-z0-9_-]+)$/);
-  if (!m) return;
-  history.replaceState(null, '', location.pathname + location.search);
-  if (!S.me) { ui.pending = m[1]; render(); return; }
-  importData(m[1]);
-}
-window.addEventListener('hashchange', checkHash);
-
-async function share(title, text, url) {
-  if (navigator.share) {
-    try { await navigator.share({ title, text, url }); return; }
-    catch (e) { if (e.name === 'AbortError') return; }
-  }
-  copy(url);
-}
-async function copy(t) {
-  try { await navigator.clipboard.writeText(t); toast('Link kopiert'); }
-  catch (e) { prompt('Link kopieren:', t); }
-}
-
-/* ---------- Live-Abgleich (optional, Firebase Realtime Database über REST) ---------- */
-
-const FB = (C.firebase || '').trim().replace(/\/+$/, '');
-const ROOM = (new URLSearchParams(location.search).get('room') || C.room || 'tasting').replace(/[^A-Za-z0-9_-]/g, '').slice(0, 40) || 'tasting';
-const live = { ok: null, lastPull: '', lastPush: '', tried: {} };
-let pushTimer = null;
-
-function scheduleSync() {
-  if (!FB || !S.me) return;
-  clearTimeout(pushTimer);
-  pushTimer = setTimeout(push, 700);
-}
-async function push() {
-  const body = JSON.stringify(pack());
-  if (body === live.lastPush) return;
-  try {
-    const r = await fetch(`${FB}/rooms/${ROOM}/tasters/${S.me.id}.json`, { method: 'PUT', body });
-    if (!r.ok) throw new Error(r.status);
-    live.lastPush = body; setLive(true);
-  } catch (e) { setLive(false); }
-}
-async function uploadFoto(id) {
-  if (!FB) return;
-  const f = foto(id);
-  if (!f) return;
-  try { await fetch(`${FB}/rooms/${ROOM}/fotos/${id}.json`, { method: 'PUT', body: JSON.stringify(f) }); } catch (e) { /* nächster Versuch in pull */ }
-}
-async function pull() {
-  if (!FB || !S.me || document.hidden) return;
-  try {
-    const r = await fetch(`${FB}/rooms/${ROOM}/tasters.json`);
-    if (!r.ok) throw new Error(r.status);
-    const text = await r.text();
-    setLive(true);
-    if (text !== live.lastPull) {
-      live.lastPull = text;
-      const data = JSON.parse(text) || {};
-      for (const p of Object.values(data)) { try { merge(p); } catch (e) { /* fehlerhaften Eintrag überspringen */ } }
-      save();
-      if (!ui.sheet || ui.sheet.type !== 'beer') render();
-      if (ui.sheet && ui.sheet.type === 'detail') renderSheet();
-    }
-    pullFotos();
-  } catch (e) { setLive(false); }
-}
-async function pullFotos() {
-  try {
-    const r = await fetch(`${FB}/rooms/${ROOM}/fotos.json?shallow=true`);
-    const have = (await r.json()) || {};
-    let changed = false;
-    for (const id of Object.keys(S.myFotos)) if (!have[id] && foto(id)) uploadFoto(id);
-    for (const id of Object.keys(have)) {
-      if (foto(id) || live.tried[id] || !S.beers[id]) continue;
-      live.tried[id] = 1;
-      const f = await (await fetch(`${FB}/rooms/${ROOM}/fotos/${id}.json`)).json();
-      if (typeof f === 'string' && f.startsWith('data:image/') && setFoto(id, f)) changed = true;
-    }
-    if (changed && !ui.sheet) render();
-  } catch (e) { /* nächste Runde */ }
-}
-function setLive(ok) {
-  if (live.ok === ok) return;
-  live.ok = ok;
-  if (ui.tab === 'group' && !ui.sheet) render();
-}
-if (FB) {
-  setInterval(pull, 4000);
-  document.addEventListener('visibilitychange', () => { if (!document.hidden) pull(); });
-}
 
 /* ---------- Export ---------- */
 
+const today = () => new Date().toISOString().slice(0, 10);
 function download(name, content, type) {
   const blob = content instanceof Blob ? content : new Blob([content], { type });
   const a = document.createElement('a');
@@ -1033,76 +776,102 @@ function download(name, content, type) {
   document.body.appendChild(a); a.click(); a.remove();
   setTimeout(() => URL.revokeObjectURL(a.href), 5000);
 }
+async function copy(t) {
+  try { await navigator.clipboard.writeText(t); toast('Link kopiert'); } catch (e) { prompt('Link kopieren:', t); }
+}
 
 function exportCSV() {
   const q = v => { const s = String(v ?? ''); return /[";\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; };
-  const dec = v => v == null || v === '' ? '' : String(Math.round(v * 100) / 100).replace('.', ',');
-  const lines = [['Person', 'Herkunft', 'Bier Nr.', 'Bier', 'Brauerei', 'Land', 'Stil', 'Alkohol %', 'Mitgebracht von', ...CATS.map(c => c.n),
-    'Wert', 'Farbe', 'Schaum', 'Klarheit', 'Aromen', 'Alkohol geschätzt', 'Notiz'].map(q).join(';')];
-  for (const t of tasters()) for (const b of beersList()) {
-    const r = t.ratings[b.id];
-    if (!r) continue;
-    lines.push([t.name, hasCountry(t.country) ? cName(t.country) : '', numOf(b.id), b.name, b.brewery, b.country ? cName(b.country) : '', b.style, dec(b.abv), b.by,
-      ...CATS.map(c => dec(r[c.k])), dec(score(r)), srmOf(r.srm)?.[2] || '', HEAD.find(h => h[0] === r.head)?.[3] || '',
-      CLARITY.find(h => h[0] === r.clarity)?.[1] || '', (r.notes || []).map(n => NOTES[n]).join(', '), dec(r.abv), r.text].map(q).join(';'));
+  const dec = v => isNum(v) ? String(Math.round(v * 100) / 100).replace('.', ',') : '';
+  const lines = [['Person', 'Nr.', 'Bier', 'Bierart', 'Alkohol %', 'Herkunft', 'Brauerei', 'Mitgebracht von', ...ASPECTS.map(a => a.n), 'Schnitt', 'Fazit (Sterne)', 'Fazit', 'Notiz'].map(q).join(';')];
+  for (const b of beers()) for (const [u, r] of ratingsOf(b.id)) {
+    lines.push([userName(u), numOf(b.id), b.name, b.style, dec(b.abv), b.region, b.brewery, b.by, ...ASPECTS.map(a => dec(r[a.k])), dec(aspAvg(r)),
+      dec(r.f), isNum(r.f) ? FAZIT[r.f] : '', r.t].map(q).join(';'));
   }
-  download(`bierverkostung-${new Date().toISOString().slice(0, 10)}.csv`, '﻿' + lines.join('\r\n'), 'text/csv;charset=utf-8');
+  download(`bierverkostung-${today()}.csv`, '﻿' + lines.join('\r\n'), 'text/csv;charset=utf-8');
 }
 
-async function shareImage(mode) {
-  const group = mode === 'group';
-  const list = group ? groupStats().rows.map(r => ({ b: r.b, s: r.avg, v: beerSrm(r.b.id), n: r.n })) : myRanked().map(x => ({ b: x.b, s: x.s, v: x.r.srm }));
-  if (!list.length) { toast('Noch nichts zum Anzeigen'); return; }
-  const top = list.slice(0, 10), W = 1080, rowH = 100, H = 420 + top.length * rowH + 130;
+async function exportImage() {
+  const R = rows(ui.filter, ui.mode).slice(0, 10);
+  if (!R.length) { toast('Noch keine Ergebnisse'); return; }
+  const fname = FILTERS.find(f => f[0] === ui.filter)[1];
+  const W = 1080, rowH = 118, top = 470, H = top + R.length * rowH + 230;
   const c = document.createElement('canvas'); c.width = W; c.height = H;
   const x = c.getContext('2d');
-  try { await Promise.all(['600 64px Oswald', '400 30px "Source Sans 3"', '700 30px "Source Sans 3"'].map(f => document.fonts.load(f))); } catch (e) { /* Ersatzschriften */ }
-  const DISP = 'Oswald, "Arial Narrow", sans-serif', SANS = '"Source Sans 3", Arial, sans-serif';
+  try { await Promise.all(['700 60px Oswald', '600 30px Oswald', '400 30px Lora', 'italic 400 26px Lora', '400 40px Kaushan'].map(f => document.fonts.load(f))); } catch (e) { /* Ersatzschriften */ }
+  const HEAD = 'Oswald, "Arial Narrow", sans-serif', SER = 'Lora, Georgia, serif', SCR = 'Kaushan, cursive';
+  const imgs = await Promise.all(R.map(r => new Promise(ok => {
+    const src = photo(r.b); if (!src) return ok(null);
+    const i = new Image(); i.onload = () => ok(i); i.onerror = () => ok(null); i.src = src;
+  })));
   const fit = (t, max) => { if (x.measureText(t).width <= max) return t; while (t.length > 1 && x.measureText(t + '…').width > max) t = t.slice(0, -1); return t + '…'; };
-  const spaced = (t, px) => { x.letterSpacing = px; };
-  // Kopf in dunklem Holz
-  const g = x.createLinearGradient(0, 0, 0, 320); g.addColorStop(0, '#2a1d15'); g.addColorStop(1, '#17110d');
-  x.fillStyle = g; x.fillRect(0, 0, W, 320);
-  x.fillStyle = 'rgba(0,0,0,.25)'; for (let xx = 0; xx < W; xx += 72) x.fillRect(xx, 0, 2, 320);
-  const glow = x.createRadialGradient(W / 2, -40, 10, W / 2, -40, 520); glow.addColorStop(0, 'rgba(255,180,90,.35)'); glow.addColorStop(1, 'rgba(255,180,90,0)');
-  x.fillStyle = glow; x.fillRect(0, 0, W, 320);
-  x.fillStyle = '#efe7da'; x.fillRect(0, 320, W, H - 320);
+  // Hintergrund
+  x.fillStyle = '#ebe2d1'; x.fillRect(0, 0, W, H);
+  const g = x.createRadialGradient(W / 2, 160, 40, W / 2, 160, 620); g.addColorStop(0, '#4b4331'); g.addColorStop(.55, '#2a251c'); g.addColorStop(1, '#13110d');
+  x.fillStyle = g; x.fillRect(0, 0, W, 330);
+  x.strokeStyle = 'rgba(0,0,0,.22)'; x.lineWidth = 2;
+  for (let i = -330; i < W; i += 7) { x.beginPath(); x.moveTo(i, 330); x.lineTo(i + 330, 0); x.stroke(); }
+  x.fillStyle = '#c0703a'; x.fillRect(0, 326, W, 6);
   x.textAlign = 'center';
-  x.fillStyle = '#d08a4a'; x.font = `500 26px ${DISP}`; spaced(0, '6px');
-  x.fillText((C.date ? fmtDate(C.date) : '').toUpperCase(), W / 2, 110);
-  x.fillStyle = '#f6efe2'; x.font = `500 64px ${DISP}`; spaced(0, '10px');
-  x.fillText(fit((C.title || 'Bierverkostung').toUpperCase(), W - 120), W / 2, 195);
-  x.fillStyle = '#c9b8a0'; x.font = `400 30px ${SANS}`; spaced(0, '0px');
-  x.fillText(group ? `Gruppenranking · ${plural(tasters().length, 'Person', 'Personen')}` : `Ranking von ${S.me.name}`, W / 2, 255);
-  x.fillStyle = '#b5652b'; x.fillRect(0, 316, W, 4);
-  top.forEach((it, i) => {
-    const y = 370 + i * rowH;
-    x.textAlign = 'left'; x.fillStyle = i < 3 ? '#b5652b' : '#9a8878'; x.font = `600 46px ${DISP}`;
-    x.fillText(pad(i + 1), 70, y + 50);
-    const col = it.v ? srmOf(it.v)[1] : '#cdbfa9';
-    x.fillStyle = col; x.fillRect(160, y + 4, 54, 62);
-    x.textAlign = 'left'; x.fillStyle = '#241a14'; x.font = `500 38px ${DISP}`;
-    x.fillText(fit(bname(it.b).toUpperCase(), 600), 240, y + 32);
-    x.font = `400 26px ${SANS}`; x.fillStyle = '#7d6b5d';
-    const sub = revealed(it.b) ? [hasCountry(it.b.country) ? cName(it.b.country) : '', it.b.style, it.n ? plural(it.n, 'Stimme', 'Stimmen') : ''].filter(Boolean).join(' · ') : '';
-    x.fillText(fit(sub, 600), 240, y + 66);
-    x.textAlign = 'right'; x.fillStyle = '#241a14'; x.font = `600 54px ${DISP}`; x.fillText(fmt(it.s), W - 70, y + 54);
-    x.fillStyle = 'rgba(36,26,20,.15)'; x.fillRect(70, y + 86, W - 140, 1);
+  x.fillStyle = '#ce9b76'; x.font = `600 28px ${HEAD}`; x.letterSpacing = '6px';
+  x.fillText(`ERASMUS · ${fmtDate(C.date).toUpperCase()}`, W / 2, 110);
+  x.fillStyle = '#ebe2d1'; x.font = `700 110px ${HEAD}`; x.letterSpacing = '2px';
+  x.fillText('RANGLISTE', W / 2, 232);
+  x.letterSpacing = '0px';
+  // Band mit Pinselschrift
+  const label = `nach ${fname}${ui.mode === 'me' ? ` · ${S.me.name}` : ' · alle'}`;
+  x.font = `400 40px ${SCR}`;
+  const lw = x.measureText(label).width + 80, lx = (W - lw) / 2, ly = 372;
+  x.fillStyle = '#c0703a'; x.beginPath(); x.moveTo(lx, ly); x.lineTo(lx + lw, ly); x.lineTo(lx + lw - 18, ly + 31); x.lineTo(lx + lw, ly + 62); x.lineTo(lx, ly + 62); x.lineTo(lx + 18, ly + 31); x.closePath(); x.fill();
+  x.fillStyle = '#ebe2d1'; x.fillText(label, W / 2, ly + 45);
+  // Liste
+  R.forEach((r, i) => {
+    const y = top + i * rowH;
+    x.textAlign = 'left'; x.fillStyle = '#c0703a'; x.font = `700 54px ${HEAD}`; x.fillText(pad(i + 1), 70, y + 70);
+    const cx = 232, cy = y + 52, rad = 46;
+    x.fillStyle = '#ce9b76'; x.beginPath(); x.arc(cx, cy, rad, 0, 7); x.fill();
+    if (imgs[i]) { x.save(); x.beginPath(); x.arc(cx, cy, rad, 0, 7); x.clip(); const im = imgs[i], k = Math.max(2 * rad / im.width, 2 * rad / im.height); x.drawImage(im, cx - im.width * k / 2, cy - im.height * k / 2, im.width * k, im.height * k); x.restore(); }
+    else { x.fillStyle = '#dc9a45'; x.beginPath(); x.moveTo(cx - 18, cy - 24); x.lineTo(cx + 18, cy - 24); x.quadraticCurveTo(cx + 18, cy + 10, cx, cy + 14); x.quadraticCurveTo(cx - 18, cy + 10, cx - 18, cy - 24); x.fill();
+      x.strokeStyle = '#291c15'; x.lineWidth = 3; x.stroke(); x.beginPath(); x.moveTo(cx, cy + 14); x.lineTo(cx, cy + 30); x.moveTo(cx - 12, cy + 31); x.lineTo(cx + 12, cy + 31); x.stroke(); }
+    x.fillStyle = '#291c15'; x.font = `600 40px ${HEAD}`; x.fillText(fit(r.b.name.toUpperCase(), 520), 310, y + 48);
+    x.fillStyle = '#5a4636'; x.font = `italic 400 27px ${SER}`;
+    x.fillText(fit([r.b.region ? 'aus ' + r.b.region : '', r.b.style, plural(r.n, 'Stimme', 'Stimmen')].filter(Boolean).join(' · '), 520), 310, y + 88);
+    x.textAlign = 'right'; x.fillStyle = '#291c15'; x.font = `700 64px ${HEAD}`; x.fillText(fmt(r.v), W - 70, y + 74);
+    x.strokeStyle = 'rgba(41,28,21,.3)'; x.lineWidth = 2; x.setLineDash([8, 6]); x.beginPath(); x.moveTo(70, y + rowH - 8); x.lineTo(W - 70, y + rowH - 8); x.stroke(); x.setLineDash([]);
   });
-  x.textAlign = 'center'; x.font = `500 28px ${DISP}`; spaced(0, '4px');
-  const words = [...new Set(top.filter(t => hasCountry(t.b.country)).map(t => cheers(t.b.country)))].slice(0, 4);
-  const cols = ['#b5652b', '#ad7a1c', '#9e1b10', '#2f5e2a'];
-  const line = words.length ? words : ['Prost!'];
-  const widths = line.map(w => x.measureText(w.toUpperCase()).width), gap = 40, total = widths.reduce((a, b) => a + b, 0) + gap * (line.length - 1);
-  let cx = (W - total) / 2; x.textAlign = 'left';
-  line.forEach((w, i) => { x.fillStyle = cols[i % cols.length]; x.fillText(w.toUpperCase(), cx, H - 60); cx += widths[i] + gap; });
+  // Fuß mit Trinksprüchen
+  const fy = H - 150;
+  x.fillStyle = '#c0703a'; x.fillRect(0, fy, W, 150);
+  x.strokeStyle = 'rgba(41,28,21,.4)'; x.setLineDash([6, 5]); x.strokeRect(12, fy + 12, W - 24, 126); x.setLineDash([]);
+  x.textAlign = 'center'; x.fillStyle = '#291c15'; x.font = `700 34px ${HEAD}`; x.letterSpacing = '3px';
+  let words = '';
+  for (const [w] of CHEERS) { const next = words ? `${words}  •  ${w.toUpperCase()}` : w.toUpperCase(); if (x.measureText(next).width > W - 120) break; words = next; }
+  x.fillText(words, W / 2, fy + 70);
+  x.font = `600 20px ${HEAD}`; x.letterSpacing = '8px'; x.fillText(`${C.title.toUpperCase()}`, W / 2, fy + 110);
+  x.letterSpacing = '0px';
   const blob = await new Promise(ok => c.toBlob(ok, 'image/png'));
-  const file = new File([blob], group ? 'gruppenranking.png' : 'mein-ranking.png', { type: 'image/png' });
+  const file = new File([blob], `bierverkostung-rangliste.png`, { type: 'image/png' });
   if (navigator.canShare && navigator.canShare({ files: [file] })) {
     try { await navigator.share({ files: [file], title: C.title }); return; } catch (e) { if (e.name === 'AbortError') return; }
   }
   download(file.name, blob);
 }
+
+/* ---------- Bewegung: Prost in vielen Sprachen ---------- */
+
+setInterval(() => {
+  const els = document.querySelectorAll('[data-ch]');
+  els.forEach(e => e.classList.add('out'));
+  setTimeout(() => {
+    ui.cheer = (ui.cheer + 1) % CHEERS.length;
+    const [w, l] = CHEERS[ui.cheer];
+    els.forEach(e => {
+      const t = e.querySelector('textPath') || e;
+      t.textContent = e.dataset.ch === 'l' ? l : e.dataset.ch === 'W' ? w.toUpperCase() : w;
+      e.classList.remove('out');
+    });
+  }, 450);
+}, 2800);
 
 /* ---------- Hinweis ---------- */
 
@@ -1115,7 +884,11 @@ function toast(msg, ms = 2400) {
 
 /* ---------- Start ---------- */
 
-render();
-checkHash();
-if (FB && S.me) { push(); pull(); }
-if ('serviceWorker' in navigator && location.protocol === 'https:') navigator.serviceWorker.register('sw.js').catch(() => {});
+(function start() {
+  const m = location.hash.match(/^#d=([A-Za-z0-9_-]+)$/);
+  if (m) { history.replaceState(null, '', location.pathname + location.search); if (S.me) setTimeout(() => importLink(m[1]), 0); else ui.pending = m[1]; }
+  render();
+  connect();
+  flush();
+  if ('serviceWorker' in navigator && location.protocol === 'https:') navigator.serviceWorker.register('sw.js').catch(() => {});
+})();

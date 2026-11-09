@@ -1,21 +1,19 @@
 # Erasmus-Bierverkostung
 
-Statische Website für eine Bierverkostung: Alle bewerten die Biere auf dem eigenen Handy, die Ergebnisse werden zu einer Gruppenwertung zusammengeführt. Kein Server nötig, funktioniert offline (Web-App mit Service Worker).
+Website für eine Bierverkostung. Alle melden sich mit ihrem Namen an, tragen Biere ein und bewerten sie auf dem eigenen Handy. Die Ergebnisse lassen sich nach Kategorien sortieren und als Bild oder Tabelle herunterladen.
+
+Design nach einer Brauerei-Vorlage (Vintclub): Pergament, Kupfer, Dunkelbraun, Oswald, Kaushan Script, Lora.
 
 ## Dateien
-- `config.js`: Titel, Datum, optionaler Live-Modus (Firebase-URL, Raumname).
-- `app.js`: alle Texte und Funktionen. `index.html`: Design.
+- `config.js`: Titel, Datum, Firebase-URL für den Live-Abgleich, Raumname.
+- `app.js`: Funktionen und Texte. `style.css`: Design. `index.html`: Gerüst.
 - `qr.js`: QR-Code-Generator (nach Project Nayuki, MIT-Lizenz).
 - `sw.js`: Offline-Speicher. Nach Änderungen die Versionsnummer in `CACHE` erhöhen.
-- `fonts/`: Oswald, Source Sans 3 (SIL Open Font License, über Google Fonts).
+- `fonts/`: Oswald, Kaushan Script, Lora (SIL Open Font License, über Google Fonts).
 
-## Funktionen
-- Biere eintragen mit Land, Stil, Alkoholgehalt, „mitgebracht von“ und Foto.
-- Bewertung: Farbe auf der SRM-Farbskala, Schaum, Klarheit, sechs Kategorien mit 1 bis 5 Krügen (zweimal tippen für halbe Punkte), Aromen, Notiz. Gewichteter Gesamtwert.
-- Blindmodus: Namen verdeckt bis zur Bewertung, Alkohol schätzen.
-- Eigenes Ranking mit Podest, Kategoriesiegern und verstellbarer Gewichtung.
-- Gruppenwertung über Teilen-Links und QR-Codes oder live über Firebase. Auszeichnungen und Länderwertung.
-- Export: CSV für Excel, Ranking als Bild, JSON-Sicherung.
+## Abgleich
+- Mit Firebase-URL in `config.js`: Biere, Bewertungen, Namen und Fotos werden live zwischen allen Handys abgeglichen (Firebase Realtime Database, REST und Server-Sent Events).
+- Ohne: Biere und Bewertungen werden über einen Link oder QR-Code geteilt (Menü oben rechts).
 
-## Daten
-Alles wird im Browser gespeichert (localStorage). Im Live-Modus zusätzlich im Firebase-Raum.
+## Bewertung
+Aussehen, Geruch, Geschmack, Nachgeschmack und Drinkability von 1 bis 5, dazu ein Fazit von 0 Sternen („Nie wieder“) bis 5 Sternen („Wird eins meiner Favoriten“). Der Gesamtwert ist der Schnitt der fünf Kategorien.

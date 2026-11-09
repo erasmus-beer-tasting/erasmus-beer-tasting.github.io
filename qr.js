@@ -1,4 +1,4 @@
-// Minimal QR code generator (byte mode, ECC M or L), after the algorithm of Project Nayuki (MIT licence).
+// QR-Code-Generator (Byte-Modus, Fehlerkorrektur M oder L), nach dem Algorithmus von Project Nayuki (MIT-Lizenz).
 (function () {
   'use strict';
   const ECC = {
@@ -9,18 +9,10 @@
       cw: [-1, 10, 16, 26, 18, 24, 16, 18, 22, 22, 26, 30, 22, 22, 24, 24, 28, 28, 26, 26, 26, 26, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28],
       bl: [-1, 1, 1, 1, 2, 2, 4, 4, 4, 5, 5, 5, 8, 9, 9, 10, 10, 11, 13, 14, 16, 17, 17, 18, 20, 21, 23, 25, 26, 28, 29, 31, 33, 35, 37, 38, 40, 43, 45, 47, 49] }
   };
-
-  function mul(x, y) {
-    let z = 0;
-    for (let i = 7; i >= 0; i--) { z = (z << 1) ^ ((z >>> 7) * 0x11D); z ^= ((y >>> i) & 1) * x; }
-    return z;
-  }
+  const mul = (x, y) => { let z = 0; for (let i = 7; i >= 0; i--) { z = (z << 1) ^ ((z >>> 7) * 0x11D); z ^= ((y >>> i) & 1) * x; } return z; };
   function divisor(deg) {
     const r = new Array(deg).fill(0); r[deg - 1] = 1; let root = 1;
-    for (let i = 0; i < deg; i++) {
-      for (let j = 0; j < deg; j++) { r[j] = mul(r[j], root); if (j + 1 < deg) r[j] ^= r[j + 1]; }
-      root = mul(root, 0x02);
-    }
+    for (let i = 0; i < deg; i++) { for (let j = 0; j < deg; j++) { r[j] = mul(r[j], root); if (j + 1 < deg) r[j] ^= r[j + 1]; } root = mul(root, 2); }
     return r;
   }
   function remainder(data, div) {
@@ -36,13 +28,10 @@
   const dataCodewords = (v, e) => Math.floor(rawModules(v) / 8) - e.cw[v] * e.bl[v];
 
   function make(text, level) {
-    const e = ECC[level];
-    const bytes = Array.from(new TextEncoder().encode(text));
+    const e = ECC[level], bytes = Array.from(new TextEncoder().encode(text));
     let v;
     for (v = 1; v <= 40; v++) if (4 + (v < 10 ? 8 : 16) + bytes.length * 8 <= dataCodewords(v, e) * 8) break;
     if (v > 40) return null;
-
-    // Data bits
     const cap = dataCodewords(v, e) * 8, bits = [];
     const push = (val, len) => { for (let i = len - 1; i >= 0; i--) bits.push((val >>> i) & 1); };
     push(4, 4); push(bytes.length, v < 10 ? 8 : 16); bytes.forEach(b => push(b, 8));
@@ -50,8 +39,6 @@
     for (let p = 0xEC; bits.length < cap; p ^= 0xEC ^ 0x11) push(p, 8);
     const data = [];
     for (let i = 0; i < bits.length; i += 8) { let b = 0; for (let j = 0; j < 8; j++) b = (b << 1) | bits[i + j]; data.push(b); }
-
-    // Error correction and interleaving
     const nb = e.bl[v], el = e.cw[v], raw = Math.floor(rawModules(v) / 8);
     const nShort = nb - raw % nb, shortLen = Math.floor(raw / nb), div = divisor(el), blocks = [];
     for (let i = 0, k = 0; i < nb; i++) {
@@ -60,8 +47,6 @@
     }
     const cw = [];
     for (let i = 0; i < blocks[0].length; i++) blocks.forEach((b, j) => { if (i !== shortLen - el || j >= nShort) cw.push(b[i]); });
-
-    // Matrix with function patterns
     const size = v * 4 + 17;
     const M = Array.from({ length: size }, () => Array(size).fill(false));
     const F = Array.from({ length: size }, () => Array(size).fill(false));
@@ -102,8 +87,6 @@
       const b = v << 12 | r;
       for (let i = 0; i < 18; i++) { const bit = ((b >>> i) & 1) === 1, a = size - 11 + i % 3, c = Math.floor(i / 3); set(a, c, bit); set(c, a, bit); }
     }
-
-    // Codewords in zigzag
     let i = 0;
     for (let right = size - 1; right >= 1; right -= 2) {
       if (right === 6) right = 5;
@@ -112,8 +95,6 @@
         if (!F[y][x] && i < cw.length * 8) { M[y][x] = ((cw[i >>> 3] >>> (7 - (i & 7))) & 1) === 1; i++; }
       }
     }
-
-    // Mask with the lowest penalty
     const mf = [
       (x, y) => (x + y) % 2 === 0, (x, y) => y % 2 === 0, (x, y) => x % 3 === 0, (x, y) => (x + y) % 3 === 0,
       (x, y) => (Math.floor(x / 3) + Math.floor(y / 2)) % 2 === 0, (x, y) => x * y % 2 + x * y % 3 === 0,
@@ -142,14 +123,12 @@
   }
 
   function svg(text) {
-    // Long links (shared ratings) use the lower error correction, so the code stays coarse enough to scan from a screen.
     const q = text.length > 300 ? make(text, 'L') : (make(text, 'M') || make(text, 'L'));
     if (!q) return null;
     const { size, M } = q, b = 4, n = size + b * 2;
     let d = '';
     for (let y = 0; y < size; y++) for (let x = 0; x < size; x++) if (M[y][x]) d += `M${x + b} ${y + b}h1v1h-1z`;
-    return `<svg viewBox="0 0 ${n} ${n}" shape-rendering="crispEdges" role="img" aria-label="QR code"><rect width="${n}" height="${n}" fill="#fff"/><path d="${d}" fill="#000"/></svg>`;
+    return `<svg viewBox="0 0 ${n} ${n}" shape-rendering="crispEdges" role="img" aria-label="QR-Code"><rect width="${n}" height="${n}" fill="#fff"/><path d="${d}" fill="#000"/></svg>`;
   }
-
   window.QR = { svg };
 })();
