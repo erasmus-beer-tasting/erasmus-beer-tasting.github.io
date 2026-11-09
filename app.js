@@ -16,7 +16,8 @@ const ASPECTS = [
   { k: 'n', n: 'Nachgeschmack', best: 'Bester Nachgeschmack', q: 'Was bleibt nach dem Schlucken?' },
   { k: 'd', n: 'Drinkability', best: 'Beste Drinkability', q: 'Wie leicht trinkt es sich?' }
 ];
-const FAZIT = ['Nie wieder', 'Eher nicht', 'Kann man trinken', 'Gerne wieder', 'Richtig gut', 'Wird eins meiner Favoriten'];
+// Index = Anzahl Sterne (1 bis 5)
+const FAZIT = ['Nie wieder', 'Nie wieder', 'Eher nicht', 'Kann man trinken', 'Richtig gut', 'Wird eins meiner Favoriten'];
 const FILTERS = [['total', 'Gesamt'], ...ASPECTS.map(a => [a.k, a.n]), ['f', 'Fazit']];
 const STYLES = ['Pils', 'Helles', 'Lager', 'Weizen', 'Dunkel', 'Bock', 'Märzen', 'Kölsch', 'Altbier', 'Pale Ale', 'IPA', 'Stout', 'Porter',
   'Witbier', 'Tripel', 'Dubbel', 'Saison', 'Sauerbier', 'Fruchtbier', 'Radler', 'Alkoholfrei'];
@@ -31,7 +32,7 @@ const KEY = 'bv-state-1', PK = 'bv-photo-', TK = 'bv-tab';
 const emptyDb = () => ({ beers: {}, ratings: {}, users: {} });
 let S;
 try { S = JSON.parse(localStorage.getItem(KEY)) || {}; } catch (e) { S = {}; }
-S = { me: S.me || null, db: Object.assign(emptyDb(), S.db || {}), queue: Array.isArray(S.queue) ? S.queue : [] };
+S = { me: S.me || null, db: Object.assign(emptyDb(), S.db || {}) };
 const ui = { tab: localStorage.getItem(TK) || 'beers', sel: null, draft: null, mode: 'all', filter: 'total', sheet: null, pending: null, cheer: 0, dirty: false };
 
 function persist() {
@@ -46,7 +47,6 @@ const fmt = x => x == null || isNaN(x) ? '–' : x.toFixed(1).replace('.', ',');
 const pct = x => String(x).replace('.', ',');
 const pad = n => String(n).padStart(2, '0');
 const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
-const fmtDate = d => d ? new Date(d + 'T12:00').toLocaleDateString('de-DE', { day: 'numeric', month: 'long', year: 'numeric' }) : '';
 const cheer = () => CHEERS[ui.cheer][0];
 
 const beers = () => Object.entries(S.db.beers || {}).filter(([, b]) => b && !b.del && b.name)
@@ -80,6 +80,7 @@ const ICON = {
   glass: '<path d="M7 3h10c0 7-1.6 10.5-5 12-3.4-1.5-5-5-5-12z"/><path d="M12 15v5M8.5 21h7M7.3 6.5h9.4"/>',
   trophy: '<path d="M8 4h8v5a4 4 0 0 1-8 0z"/><path d="M8 6H5a3 3 0 0 0 3 4M16 6h3a3 3 0 0 1-3 4M12 13v4M8.5 20h7M10 17h4v3h-4z"/>',
   menu: '<path d="M4 7h16M4 12h16M4 17h16"/>',
+  sync: '<path d="M4.5 11a7.5 7.5 0 0 1 13-4.2L19.5 9M19.5 4.5V9H15M19.5 13a7.5 7.5 0 0 1-13 4.2L4.5 15M4.5 19.5V15H9"/>',
   close: '<path d="M6 6l12 12M18 6L6 18"/>',
   check: '<path d="M5 12.5l4.5 4.5L19 7.5"/>'
 };
@@ -109,7 +110,6 @@ function sprig(x, y, flip) {
 }
 
 function seal() {
-  const year = (C.date || '').slice(0, 4) || new Date().getFullYear();
   const star = (x, y, r) => `<path class="star" transform="translate(${x - 12 * r} ${y - 12 * r}) scale(${r})" d="M12 2.8l2.8 5.9 6.4.8-4.7 4.4 1.2 6.4L12 17.2l-5.7 3.1 1.2-6.4L2.8 9.5l6.4-.8z"/>`;
   return `<svg class="seal" viewBox="0 0 480 300" aria-hidden="true">
     <defs><path id="sa-top" d="M150 150a90 90 0 0 1 180 0"/><path id="sa-bot" d="M146 150a94 94 0 0 0 188 0"/></defs>
@@ -126,8 +126,8 @@ function seal() {
     <rect class="ban" x="104" y="132" width="272" height="44"/>
     <text class="bt" x="240" y="165" text-anchor="middle">BIERVERKOSTUNG</text>
     ${star(222, 196, .5)}${star(240, 198, .62)}${star(258, 196, .5)}
-    <circle class="mini" cx="36" cy="160" r="27"/><text class="mt" x="36" y="165" text-anchor="middle">EST</text>
-    <circle class="mini" cx="444" cy="160" r="27"/><text class="mt" x="444" y="165" text-anchor="middle">${year}</text>
+    <circle class="mini" cx="36" cy="160" r="27"/>${star(36, 160, .8)}
+    <circle class="mini" cx="444" cy="160" r="27"/>${star(444, 160, .8)}
   </svg>`;
 }
 
@@ -142,21 +142,11 @@ function stamp(n) {
 
 function photo(b) {
   if (!b.photo) return null;
-  const d = localStorage.getItem(PK + b.id), at = +localStorage.getItem(PK + b.id + '@') || 0;
-  if (FB && (!d || (b.photoAt || 0) > at)) loadPhoto(b);
-  return d;
+  return localStorage.getItem(PK + b.id);
 }
-function storePhoto(id, d, at) {
-  try { localStorage.setItem(PK + id, d); localStorage.setItem(PK + id + '@', String(at || Date.now())); return true; }
+function storePhoto(id, d) {
+  try { localStorage.setItem(PK + id, d); return true; }
   catch (e) { toast('Nicht genug Speicher für das Foto'); return false; }
-}
-function loadPhoto(b) {
-  const key = b.id + '@' + (b.photoAt || 0);
-  if (sync.tried[key]) return;
-  sync.tried[key] = 1;
-  fetch(url(`photos/${b.id}`)).then(r => r.json()).then(d => {
-    if (typeof d === 'string' && d.startsWith('data:image/')) { storePhoto(b.id, d, b.photoAt); softRender(); }
-  }).catch(() => { delete sync.tried[key]; });
 }
 async function shrink(file, max = 520) {
   const src = URL.createObjectURL(file);
@@ -175,14 +165,9 @@ function circle(b, opt = {}) {
   return `<div class="circle"${opt.id ? ` id="${opt.id}"` : ''}>${src ? `<img src="${src}" alt="">` : GOBLET}${opt.no ? `<span class="no">${pad(numOf(b.id))}</span>` : ''}${opt.ok ? `<span class="ok">${svgIcon('check')}</span>` : ''}${opt.medal ? `<span class="medal">${opt.medal}</span>` : ''}</div>`;
 }
 
-/* ---------- Abgleich ---------- */
+/* ---------- Abgleich ohne Server: per Link oder QR-Code ---------- */
 
-const FB = (C.firebase || '').trim().replace(/\/+$/, '');
-const ROOM = (new URLSearchParams(location.search).get('room') || C.room || 'tasting').replace(/[^A-Za-z0-9_-]/g, '').slice(0, 40) || 'tasting';
-const sync = { ok: null, busy: false, tried: {} };
-const url = p => `${FB}/rooms/${ROOM}/${p}.json`;
 const BAD = new Set(['__proto__', 'constructor', 'prototype']);
-
 function setAt(root, segs, value) {
   if (segs.some(s => BAD.has(s))) return;
   let o = root;
@@ -193,91 +178,75 @@ function setAt(root, segs, value) {
   const last = segs[segs.length - 1];
   if (value === null || value === undefined) delete o[last]; else o[last] = value;
 }
-
-// Schreibt lokal und (falls Live-Abgleich aktiv) in die gemeinsame Datenbank
+// Schreibt in den lokalen Datenbestand dieses Handys
 function write(path, value) {
   const segs = path.split('/');
   if (segs[0] === 'data') setAt(S.db, segs.slice(1), value);
-  if (FB) { S.queue.push([path, value]); flush(); }
   persist();
 }
-async function flush() {
-  if (sync.busy || !FB) return;
-  sync.busy = true;
-  while (S.queue.length) {
-    const [path, value] = S.queue[0];
-    try {
-      const r = await fetch(url(path), value === null ? { method: 'DELETE' } : { method: 'PUT', body: JSON.stringify(value) });
-      if (!r.ok) throw new Error(r.status);
-      S.queue.shift(); persist();
-    } catch (e) { sync.busy = false; setLive(false); setTimeout(flush, 6000); return; }
-  }
-  sync.busy = false;
-}
-function onRemote(e, patch) {
-  let m;
-  try { m = JSON.parse(e.data); } catch (err) { return; }
-  if (!m || typeof m.path !== 'string') return;
-  const segs = m.path.split('/').filter(Boolean);
-  if (!segs.length && !patch) {
-    const d = m.data || {};
-    S.db = { beers: d.beers || {}, ratings: d.ratings || {}, users: d.users || {} };
-    for (const [p, v] of S.queue) { const s = p.split('/'); if (s[0] === 'data') setAt(S.db, s.slice(1), v); }
-  } else if (patch) {
-    for (const [k, v] of Object.entries(m.data || {})) setAt(S.db, [...segs, ...k.split('/')], v);
-  } else setAt(S.db, segs, m.data);
-  setLive(true); persist(); softRender();
-}
-function connect() {
-  if (!FB || !window.EventSource) return;
-  const es = new EventSource(url('data'));
-  es.addEventListener('put', e => onRemote(e, false));
-  es.addEventListener('patch', e => onRemote(e, true));
-  es.addEventListener('cancel', () => setLive(false));
-  es.onopen = () => { setLive(true); flush(); };
-  es.onerror = () => setLive(false);
-}
-function setLive(ok) {
-  if (sync.ok === ok) return;
-  sync.ok = ok;
-  const d = $('#livedot');
-  if (d) d.className = 'livedot ' + (ok ? 'ok' : 'bad');
-}
 
-// Rendern, ohne laufende Eingaben zu stören
-let rTimer = null;
-function softRender() {
-  clearTimeout(rTimer);
-  rTimer = setTimeout(() => {
-    const a = document.activeElement;
-    if (a && (a.tagName === 'INPUT' || a.tagName === 'TEXTAREA') && $('#app').contains(a)) { ui.dirty = true; return; }
-    render();
-    if (ui.sheet?.type === 'detail') renderSheet();
-  }, 150);
-}
-document.addEventListener('focusout', () => { if (ui.dirty) { ui.dirty = false; setTimeout(softRender, 50); } });
-
-/* Teilen per Link (ohne Live-Abgleich) */
 const b64u = bytes => { let s = ''; for (let i = 0; i < bytes.length; i++) s += String.fromCharCode(bytes[i]); return btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, ''); };
 const unb64u = s => Uint8Array.from(atob(s.replace(/-/g, '+').replace(/_/g, '/')), c => c.charCodeAt(0));
 const pipe = async (bytes, stream) => new Uint8Array(await new Response(new Blob([bytes]).stream().pipeThrough(stream)).arrayBuffer());
 const baseUrl = () => location.origin + location.pathname;
-const inviteUrl = () => baseUrl() + (new URLSearchParams(location.search).get('room') ? `?room=${encodeURIComponent(ROOM)}` : '');
+const t36 = ms => Math.round((ms || 0) / 1000).toString(36);
+const f36 = s => (parseInt(s, 36) || 0) * 1000;
 
-async function shareLink() {
-  let bytes = new TextEncoder().encode(JSON.stringify({ v: 1, db: S.db })), pre = 'j';
+// Kompaktes Format, damit auch viele Bewertungen in einen QR-Code passen
+function pack(mineOnly) {
+  const B = Object.entries(S.db.beers || {}), U = new Map();
+  const uIdx = id => { if (!U.has(id)) U.set(id, U.size); return U.get(id); };
+  Object.keys(S.db.users || {}).forEach(uIdx);
+  const bIdx = new Map(B.map(([id], i) => [id, i]));
+  const r = [];
+  for (const [bid, per] of Object.entries(S.db.ratings || {})) {
+    if (!bIdx.has(bid)) continue;
+    for (const [uid, x] of Object.entries(per || {})) {
+      if (mineOnly && uid !== S.me?.id) continue;
+      if (!x) continue;
+      const row = [bIdx.get(bid), uIdx(uid), ...ASPECTS.map(a => x[a.k] || 0), isNum(x.f) ? x.f : -1, t36(x.at)];
+      if (x.t) row.push(x.t);
+      r.push(row);
+    }
+  }
+  return {
+    v: 2,
+    u: [...U.keys()].map(id => [id, S.db.users[id]?.name || '', t36(S.db.users[id]?.at)]),
+    b: B.map(([id, b]) => [id, b.name, b.style || '', b.abv ?? '', b.region || '', b.brewery || '', b.by || '', b.byId || '', t36(b.at), t36(b.upd), b.del ? 1 : 0]),
+    r
+  };
+}
+function unpack(p) {
+  if (p.db) return p.db;
+  const db = emptyDb(), U = p.u || [], B = p.b || [];
+  for (const [id, name, at] of U) if (name) db.users[id] = { name, at: f36(at) };
+  for (const [id, name, style, abv, region, brewery, by, byId, at, upd, del] of B)
+    db.beers[id] = { name, style, abv: abv === '' ? null : abv, region, brewery, by, byId, at: f36(at), upd: f36(upd), del: !!del };
+  for (const row of p.r || []) {
+    const b = B[row[0]], u = U[row[1]];
+    if (!b || !u) continue;
+    const x = { at: f36(row[8]), t: row[9] || '', f: row[7] >= 0 ? row[7] : null };
+    ASPECTS.forEach((a, i) => { if (row[2 + i]) x[a.k] = row[2 + i]; });
+    (db.ratings[b[0]] ||= {})[u[0]] = x;
+  }
+  return db;
+}
+
+async function shareLink(mineOnly) {
+  let bytes = new TextEncoder().encode(JSON.stringify(pack(mineOnly))), pre = 'j';
   if (window.CompressionStream) { try { bytes = await pipe(bytes, new CompressionStream('deflate-raw')); pre = 'z'; } catch (e) { /* unkomprimiert */ } }
-  return inviteUrl() + '#d=' + pre + b64u(bytes);
+  return baseUrl() + '#d=' + pre + b64u(bytes);
 }
 async function importLink(s) {
   try {
     let bytes = unb64u(s.slice(1));
     if (s[0] === 'z') bytes = await pipe(bytes, new DecompressionStream('deflate-raw'));
-    const n = merge(JSON.parse(new TextDecoder().decode(bytes)).db || {});
+    const n = merge(unpack(JSON.parse(new TextDecoder().decode(bytes))));
     persist(); render();
-    toast(`Übernommen: ${plural(n.beers, 'neues Bier', 'neue Biere')}, ${plural(n.ratings, 'Bewertung', 'Bewertungen')}`, 3500);
+    toast(n.beers || n.ratings ? `Übernommen: ${plural(n.beers, 'neues Bier', 'neue Biere')}, ${plural(n.ratings, 'neue Bewertung', 'neue Bewertungen')}` : 'Alles schon auf dem neuesten Stand', 3500);
   } catch (e) { toast('Dieser Link konnte nicht gelesen werden'); }
 }
+
 const ID = /^[a-z0-9]{3,16}$/;
 const str = (v, n) => String(v ?? '').slice(0, n);
 const numIn = (v, lo, hi) => { v = +v; return isNum(v) && v >= lo && v <= hi ? v : null; };
@@ -300,7 +269,7 @@ function merge(db) {
       const clean = { at: numIn(r.at, 0, 9e15) || 0, t: str(r.t, 300), f: numIn(r.f, 0, 5) };
       ASPECTS.forEach(a => { clean[a.k] = numIn(r[a.k], 1, 5); });
       const cur = S.db.ratings[bid]?.[uid];
-      if (!cur || clean.at > (cur.at || 0)) { if (!cur) n.ratings++; (S.db.ratings[bid] ||= {})[uid] = clean; }
+      if (!cur || clean.at > (cur.at || 0)) { n.ratings++; (S.db.ratings[bid] ||= {})[uid] = clean; }
     }
   }
   return n;
@@ -311,9 +280,8 @@ function merge(db) {
 function topbar() {
   return `<header class="topbar">
     <div class="logo"><i>Erasmus</i><b>EB</b></div>
-    <div class="t"><b>Bierverkostung</b><small>${S.me ? esc(S.me.name) : esc(fmtDate(C.date))}</small></div>
-    ${FB ? `<span id="livedot" class="livedot ${sync.ok === null ? '' : sync.ok ? 'ok' : 'bad'}" title="Live-Abgleich"></span>` : ''}
-    ${S.me ? `<button class="menu" data-act="menu" aria-label="Menü">${svgIcon('menu')}</button>` : ''}
+    <div class="t"><b>Bierverkostung</b><small>${S.me ? esc(S.me.name) : 'Erasmus'}</small></div>
+    ${S.me ? `<button class="sync-btn" data-act="menu">${svgIcon('sync')}<span>Abgleich</span></button>` : ''}
   </header>`;
 }
 
@@ -335,12 +303,12 @@ function cheersSection() {
     <p class="cheers-lang"><span class="hl fade" data-ch="l">${esc(l)}</span></p>
     <div class="cheers-big fade" data-ch="w">${esc(w)}</div>
     <div class="ticker" aria-hidden="true"><div>${line}<i>•</i>${line}<i>•</i></div></div>
-    <p class="ticker-sub">Erasmus · weltweit · ${(C.date || '').slice(0, 4)}</p>
+    <p class="ticker-sub">Erasmus · weltweit</p>
   </section>`;
 }
 
 function footer() {
-  return `<footer class="foot"><p class="script fade" data-ch="w">${esc(cheer())}</p><small>${esc(C.title)} · ${esc(fmtDate(C.date))}</small></footer>`;
+  return `<footer class="foot"><p class="script fade" data-ch="w">${esc(cheer())}</p><small>${esc(C.title)}</small></footer>`;
 }
 
 function render() {
@@ -355,7 +323,7 @@ function viewWelcome() {
     <section class="sec paper center">${wheat()}
       <p class="kick">Willkommen zur</p>${CUP}
       <h1 class="big">Bierverkostung</h1>
-      <span class="sribbon">${esc(fmtDate(C.date))}</span>
+      <span class="sribbon">Erasmus</span>
       <div class="form" style="max-width:360px;margin:24px auto 0;text-align:left">
         <label>Dein Name<input id="w-name" maxlength="30" autocomplete="given-name" placeholder="z. B. Sofia"></label>
         <button class="btn wide" data-act="login" style="margin-top:18px">Anmelden</button>
@@ -372,7 +340,7 @@ function viewBeers() {
     <section class="sec paper center">${wheat()}
       <p class="kick">Willkommen, ${esc(S.me.name)}</p>${CUP}
       <h1 class="big">Bierverkostung</h1>
-      <span class="sribbon">Erasmus · ${esc(fmtDate(C.date))}</span>
+      <span class="sribbon">Erasmus</span>
       <div class="stats">
         <div><b>${L.length}</b><span>Biere</span></div>
         <div><b>${regions}</b><span>Herkünfte</span></div>
@@ -383,7 +351,7 @@ function viewBeers() {
     <section class="sec paper center">${wheat()}
       <p class="kick">Auf dem Tisch</p>${CUP}
       <h2 class="big">Unsere Biere</h2>
-      ${!FB && L.length ? '<p class="info-box">Kein Live-Abgleich eingerichtet. Über das Menü oben rechts teilst du Biere und Bewertungen per Link.</p>' : ''}
+      ${L.length ? '<p class="info-box">Biere und Bewertungen gleicht ihr über „Abgleich“ oben rechts aus: per QR-Code oder Link von Handy zu Handy.</p>' : ''}
       <div class="grid">${L.map(card).join('')}<button class="add-tile" data-act="add"><span>+</span><b>Bier hinzufügen</b></button></div>
     </section>`;
 }
@@ -433,9 +401,9 @@ function viewRate() {
       <div class="fazit">
         <p class="kick">Am Ende</p>
         <h3>Fazit</h3>
-        <div class="stars"><button class="never ${d.f === 0 ? 'on' : ''}" data-act="fazit" data-v="0">Nie wieder</button>${[1, 2, 3, 4, 5].map(i => `<button class="star-b ${d.f >= i ? 'on' : ''}" data-act="fazit" data-v="${i}" aria-label="${i} Sterne">${STAR}</button>`).join('')}</div>
+        <div class="stars">${[1, 2, 3, 4, 5].map(i => `<button class="star-b ${d.f >= i ? 'on' : ''}" data-act="fazit" data-v="${i}" aria-label="${i} Sterne">${STAR}</button>`).join('')}</div>
         <p class="fazit-l">${isNum(d.f) ? FAZIT[d.f] : '&nbsp;'}</p>
-        <div class="fazit-scale"><span>0 · nie wieder</span><span>5 · wird ein Favorit</span></div>
+        <div class="fazit-scale"><span>1 · nie wieder</span><span>5 · wird ein Favorit</span></div>
       </div>
       <label class="note-l" for="note">Notiz <i style="font:italic .78rem var(--serif);text-transform:none;letter-spacing:0">(freiwillig)</i></label>
       <textarea id="note" data-in="note" rows="3" maxlength="300" placeholder="Was willst du dir merken?">${esc(d.t)}</textarea>
@@ -475,7 +443,7 @@ function viewResults() {
           <div class="v">${valHTML(r)}<br><small>${plural(r.n, 'Stimme', 'Stimmen')}</small></div>
           <div class="bar"><i style="width:${Math.max(0, r.v / 5 * 100)}%"></i></div>
         </li>`).join('')}</ol>
-        <p class="small center" style="margin-top:12px"><i>${fname}: ${ui.filter === 'f' ? 'Sterne von 0 bis 5' : ui.filter === 'total' ? 'Schnitt aus allen fünf Kategorien' : 'Schnitt von 1 bis 5'}${ui.mode === 'all' ? ', gemittelt über alle' : ', nur deine Wertung'}.</i></p>`
+        <p class="small center" style="margin-top:12px"><i>${fname}: ${ui.filter === 'f' ? 'Sterne von 1 bis 5' : ui.filter === 'total' ? 'Schnitt aus allen fünf Kategorien' : 'Schnitt von 1 bis 5'}${ui.mode === 'all' ? ', gemittelt über alle' : ', nur deine Wertung'}.</i></p>`
       : `<p class="empty">Noch keine Bewertungen${ui.mode === 'me' ? ' von dir' : ''}.</p>`}
     </section>
     ${R.length ? awardsSection() : ''}
@@ -608,27 +576,41 @@ function sheetDetail() {
 }
 
 function sheetMenu() {
-  const pending = S.queue.length;
-  return `${shHead('Menü')}
+  const nR = Object.values(S.db.ratings || {}).reduce((s, per) => s + Object.keys(per || {}).length, 0);
+  const nU = new Set(Object.values(S.db.ratings || {}).flatMap(per => Object.keys(per || {}))).size;
+  return `${shHead('Abgleich')}
     <div class="sh-body">
+      <p class="small">Biere und Bewertungen wandern von Handy zu Handy. Ein Handy zeigt seinen Code, das andere scannt ihn mit der Kamera. Dabei wird alles zusammengeführt, nichts geht verloren.</p>
+      <p class="small"><i>Auf diesem Handy: ${plural(beers().length, 'Bier', 'Biere')}, ${plural(nR, 'Bewertung', 'Bewertungen')} von ${plural(nU, 'Person', 'Personen')}.</i></p>
+      <h3 class="sub-h">Senden</h3>
+      <div class="qr" id="m-qr"><p class="small center">Code wird erstellt …</p></div>
+      <p class="small center" id="m-qr-note"></p>
+      <div class="btns"><button class="btn small" data-act="shareLink">Als Link teilen</button></div>
+      <h3 class="sub-h">Empfangen</h3>
+      <p class="small">Den Code eines anderen Handys mit der Kamera scannen und den Link öffnen. Oder einen geschickten Link hier einfügen:</p>
+      <div class="form paste"><input id="m-paste" placeholder="Link einfügen" autocomplete="off"><button class="btn small line" data-act="importPaste">Übernehmen</button></div>
       <h3 class="sub-h">Dein Name</h3>
-      <div class="form paste"><input id="m-name" maxlength="30" value="${esc(S.me.name)}"><button class="btn small" data-act="rename">Ändern</button></div>
-      <h3 class="sub-h">Freunde einladen</h3>
-      <p class="small">Die anderen scannen den Code mit der Handykamera und melden sich mit ihrem Namen an.</p>
-      <div class="qr">${QR.svg(inviteUrl()) || ''}</div>
-      <div class="btns"><button class="btn line small" data-act="copyInvite">Link kopieren</button></div>
-      <h3 class="sub-h">Abgleich</h3>
-      ${FB ? `<p class="small">${sync.ok ? `Live verbunden mit dem Raum „${esc(ROOM)}“. Neue Biere und Bewertungen erscheinen bei allen sofort.` : 'Gerade keine Verbindung. Änderungen werden nachgereicht, sobald das Netz wieder da ist.'}${pending ? ` (${plural(pending, 'Änderung', 'Änderungen')} offen)` : ''}</p>`
-      : `<p class="small">Kein Live-Abgleich eingerichtet. Teile Biere und Bewertungen per Link. Wer ihn öffnet, bekommt alles auf sein Handy.</p>
-        <div class="btns"><button class="btn small" data-act="shareLink">Link teilen</button><button class="btn line small" data-act="qrLink">Als QR-Code</button></div>
-        <div class="form paste" style="margin-top:14px"><input id="m-paste" placeholder="Link hier einfügen" autocomplete="off"><button class="btn small line" data-act="importPaste">Übernehmen</button></div>`}
+      <div class="form paste"><input id="m-name" maxlength="30" value="${esc(S.me.name)}"><button class="btn small line" data-act="rename">Ändern</button></div>
       <h3 class="sub-h">Herunterladen</h3>
       <div class="btns col"><button class="btn small" data-act="img">Ergebnisse als Bild</button><button class="btn small line" data-act="csv">Alle Bewertungen als Tabelle (CSV)</button><button class="btn small line" data-act="backup">Sicherung (JSON)</button></div>
       <h3 class="sub-h">Abmelden</h3>
-      <p class="small">Deine Bewertungen bleiben gespeichert. Mit demselben Namen meldest du dich wieder an.</p>
+      <p class="small">Deine Bewertungen bleiben auf diesem Handy gespeichert. Mit demselben Namen meldest du dich wieder an.</p>
       <div class="btns col"><button class="btn small line" data-act="logout">Abmelden</button>
       <button class="btn small danger" data-act="wipe">Alle Daten auf diesem Handy löschen</button></div>
     </div>`;
+}
+async function fillQR() {
+  const el = $('#m-qr');
+  if (!el) return;
+  // Erst alles versuchen; ist das zu viel für einen Code, nur Biere und eigene Bewertungen
+  // (über etwa 1200 Zeichen wird der Code zu fein, um ihn sicher vom Bildschirm zu scannen)
+  const MAX = 1200;
+  let u = await shareLink(false), note = 'Enthält alle Biere und alle Bewertungen auf diesem Handy.';
+  if (u.length > MAX) { u = await shareLink(true); note = 'Enthält alle Biere und deine eigenen Bewertungen. Für alles zusammen „Als Link teilen“ nutzen.'; }
+  const code = u.length <= MAX * 1.6 ? QR.svg(u) : null;
+  el.innerHTML = code ? code : '<p class="small center">Zu viele Daten für einen QR-Code. Bitte „Als Link teilen“ nutzen.</p>';
+  const n = $('#m-qr-note');
+  if (n && code) n.textContent = note;
 }
 
 function sheetQR() {
@@ -664,7 +646,7 @@ const ACTIONS = {
   editBeer(el) { openSheet({ type: 'beer', id: el.dataset.id }); },
   rateThis(el) { goRate(el.dataset.id); },
   close() { closeSheet(); },
-  menu() { openSheet({ type: 'menu' }); },
+  menu() { openSheet({ type: 'menu' }); fillQR(); },
   pick(el) { ui.sel = el.dataset.id; ui.draft = null; render(); },
   dot(el) {
     const d = ui.draft, k = el.dataset.k, v = +el.dataset.v;
@@ -702,15 +684,15 @@ const ACTIONS = {
       byId: prev?.byId || S.me.id, at: prev?.at || now, upd: now, del: false,
       photo: !!prev?.photo, photoAt: prev?.photoAt || 0
     };
-    if (s.photo) { b.photo = true; b.photoAt = now; storePhoto(id, s.photo, now); write(`photos/${id}`, s.photo); }
-    else if (s.rm) { b.photo = false; b.photoAt = now; localStorage.removeItem(PK + id); write(`photos/${id}`, null); }
+    if (s.photo) { b.photo = true; b.photoAt = now; storePhoto(id, s.photo); }
+    else if (s.rm) { b.photo = false; b.photoAt = now; localStorage.removeItem(PK + id); }
     write(`data/beers/${id}`, b);
     closeSheet(); render();
     toast(prev ? 'Gespeichert' : `${name} steht auf der Liste`);
   },
   delBeer() {
     const id = ui.sheet.id, b = S.db.beers[id];
-    if (!confirm(`„${b.name}“ löschen? Das Bier verschwindet bei allen.`)) return;
+    if (!confirm(`„${b.name}“ löschen? Beim nächsten Abgleich verschwindet es auch bei den anderen.`)) return;
     write(`data/beers/${id}`, { ...b, del: true, upd: Date.now() });
     closeSheet(); render();
   },
@@ -723,13 +705,11 @@ const ACTIONS = {
     S.me.name = name; write(`data/users/${S.me.id}`, { name, at: Date.now() });
     render(); renderSheet(); toast('Name geändert');
   },
-  copyInvite() { copy(inviteUrl()); },
   async shareLink() {
     const u = await shareLink();
     if (navigator.share) { try { await navigator.share({ title: C.title, text: 'Biere und Bewertungen von der Bierverkostung:', url: u }); return; } catch (e) { if (e.name === 'AbortError') return; } }
     copy(u);
   },
-  async qrLink() { openSheet({ type: 'qr', title: 'Biere und Bewertungen', text: await shareLink(), hint: 'Lass jemanden scannen. Biere und Bewertungen landen dann auf dem anderen Handy.' }); },
   importPaste() {
     const m = $('#m-paste').value.match(/#d=([A-Za-z0-9_-]+)/);
     if (!m) { toast('Das ist kein gültiger Link'); return; }
@@ -740,7 +720,7 @@ const ACTIONS = {
   backup() { download(`bierverkostung-sicherung-${today()}.json`, JSON.stringify({ app: 'bierverkostung', v: 1, db: S.db }), 'application/json'); },
   logout() { S.me = null; persist(); closeSheet(); render(); window.scrollTo(0, 0); },
   wipe() {
-    if (!confirm('Wirklich alle Daten auf diesem Handy löschen? Im Live-Abgleich bleiben sie für die anderen erhalten.')) return;
+    if (!confirm('Wirklich alle Biere, Bewertungen und Fotos auf diesem Handy löschen?')) return;
     for (const k of Object.keys(localStorage)) if (k.startsWith('bv-')) localStorage.removeItem(k);
     location.reload();
   }
@@ -814,7 +794,7 @@ async function exportImage() {
   x.fillStyle = '#c0703a'; x.fillRect(0, 326, W, 6);
   x.textAlign = 'center';
   x.fillStyle = '#ce9b76'; x.font = `600 28px ${HEAD}`; x.letterSpacing = '6px';
-  x.fillText(`ERASMUS · ${fmtDate(C.date).toUpperCase()}`, W / 2, 110);
+  x.fillText('ERASMUS', W / 2, 110);
   x.fillStyle = '#ebe2d1'; x.font = `700 110px ${HEAD}`; x.letterSpacing = '2px';
   x.fillText('RANGLISTE', W / 2, 232);
   x.letterSpacing = '0px';
@@ -888,7 +868,5 @@ function toast(msg, ms = 2400) {
   const m = location.hash.match(/^#d=([A-Za-z0-9_-]+)$/);
   if (m) { history.replaceState(null, '', location.pathname + location.search); if (S.me) setTimeout(() => importLink(m[1]), 0); else ui.pending = m[1]; }
   render();
-  connect();
-  flush();
   if ('serviceWorker' in navigator && location.protocol === 'https:') navigator.serviceWorker.register('sw.js').catch(() => {});
 })();
