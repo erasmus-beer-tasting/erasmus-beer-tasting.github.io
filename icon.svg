@@ -1,9 +1,10 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
-  <rect width="100" height="100" rx="22" fill="#f0a81c"/>
-  <rect x="8" y="8" width="84" height="84" rx="16" fill="none" stroke="#2a1708" stroke-width="2.5" stroke-dasharray="3 4"/>
-  <g transform="translate(18 16) scale(2)" stroke="#2a1708" stroke-linejoin="round">
-    <rect x="7" y="10.5" width="14" height="17" rx="1.5" fill="#ffd46b" stroke="none"/>
-    <path d="M6.5 10.5c-1.5-2.6.6-5.4 3.3-4.6.9-2.2 4.2-2.6 5.6-.6 1.7-1.4 4.6-.6 4.9 1.7 2.2.2 2.6 2.7 1.2 3.5z" fill="#fffdf6" stroke-width="1.3"/>
-    <path d="M6 9h16v17.5a2.5 2.5 0 0 1-2.5 2.5h-11A2.5 2.5 0 0 1 6 26.5zM22 13h2.5a3 3 0 0 1 3 3v4.5a3 3 0 0 1-3 3H22" fill="none" stroke-width="2.2"/>
+  <rect width="100" height="100" fill="#1c140f"/>
+  <circle cx="50" cy="50" r="40" fill="none" stroke="#b5652b" stroke-width="2.5"/>
+  <circle cx="50" cy="50" r="35" fill="none" stroke="#b5652b" stroke-width="1"/>
+  <g transform="translate(34 27) scale(.8)">
+    <clipPath id="c"><path d="M8 5h24l-2.6 39.5a3.5 3.5 0 0 1-3.5 3.3H14.1a3.5 3.5 0 0 1-3.5-3.3z"/></clipPath>
+    <g clip-path="url(#c)"><rect y="15" width="40" height="40" fill="#e58500"/><rect y="10" width="40" height="5" fill="#f6efe2"/></g>
+    <path d="M8 5h24l-2.6 39.5a3.5 3.5 0 0 1-3.5 3.3H14.1a3.5 3.5 0 0 1-3.5-3.3z" fill="none" stroke="#f6efe2" stroke-width="2.4" stroke-linejoin="round"/>
   </g>
 </svg>

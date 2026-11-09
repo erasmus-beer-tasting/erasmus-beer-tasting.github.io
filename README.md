@@ -7,7 +7,7 @@ Statische Website für eine Bierverkostung: Alle bewerten die Biere auf dem eige
 - `app.js`: alle Texte und Funktionen. `index.html`: Design.
 - `qr.js`: QR-Code-Generator (nach Project Nayuki, MIT-Lizenz).
 - `sw.js`: Offline-Speicher. Nach Änderungen die Versionsnummer in `CACHE` erhöhen.
-- `fonts/`: Fraunces, Gochi Hand, Nunito (SIL Open Font License, über Google Fonts).
+- `fonts/`: Oswald, Source Sans 3 (SIL Open Font License, über Google Fonts).
 
 ## Funktionen
 - Biere eintragen mit Land, Stil, Alkoholgehalt, „mitgebracht von“ und Foto.

@@ -1,8 +1,8 @@
 // Offline-Speicher: liefert sofort aus dem Cache und aktualisiert im Hintergrund.
 // Nach Änderungen die Versionsnummer in CACHE erhöhen.
-const CACHE = 'beer-v2';
+const CACHE = 'beer-v3';
 const FILES = ['./', 'index.html', 'app.js', 'qr.js', 'config.js', 'manifest.webmanifest', 'icon.svg', 'icon-180.png', 'icon-192.png', 'icon-512.png',
-  'fonts/fraunces.woff2', 'fonts/gochi.woff2', 'fonts/nunito.woff2'];
+  'fonts/oswald.woff2', 'fonts/oswald-ext.woff2', 'fonts/sourcesans.woff2', 'fonts/sourcesans-ext.woff2', 'fonts/sourcesans-italic.woff2'];
 
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(CACHE).then(c => c.addAll(FILES)));
