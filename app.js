@@ -1,7 +1,7 @@
 'use strict';
 /* Erasmus-Bierverkostung
    Anmelden mit Namen, Biere eintragen, bewerten, Ergebnisse vergleichen.
-   Abgleich zwischen den Handys live über Firebase (falls eingerichtet) oder per Link. */
+   Blindverkostung mit Nummern, Abgleich zwischen den Handys per QR-Code oder Link. */
 
 const C = window.CONFIG || {};
 const $ = (s, el = document) => el.querySelector(s);
@@ -29,10 +29,11 @@ const CHEERS = [['Prost!', 'Deutsch'], ['Skål!', 'Schwedisch'], ['¡Salud!', 'S
 /* ---------- Zustand ---------- */
 
 const KEY = 'bv-state-1', PK = 'bv-photo-', TK = 'bv-tab';
-const emptyDb = () => ({ beers: {}, ratings: {}, users: {} });
+const emptyDb = () => ({ beers: {}, ratings: {}, users: {}, meta: {} });
 let S;
 try { S = JSON.parse(localStorage.getItem(KEY)) || {}; } catch (e) { S = {}; }
-S = { me: S.me || null, db: Object.assign(emptyDb(), S.db || {}) };
+// blind: Namen verdeckt, bis ein Bier auf diesem Handy aufgedeckt wird. revealed/poured gelten nur für dieses Handy.
+S = { me: S.me || null, db: Object.assign(emptyDb(), S.db || {}), blind: S.blind !== false, revealed: S.revealed || {}, poured: S.poured || {} };
 const ui = { tab: localStorage.getItem(TK) || 'beers', sel: null, draft: null, mode: 'all', filter: 'total', sheet: null, pending: null, cheer: 0, dirty: false };
 
 function persist() {
@@ -50,9 +51,32 @@ const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
 const cheer = () => CHEERS[ui.cheer][0];
 
 const beers = () => Object.entries(S.db.beers || {}).filter(([, b]) => b && !b.del && b.name)
-  .map(([id, b]) => ({ ...b, id })).sort((a, b) => (a.at || 0) - (b.at || 0) || a.id.localeCompare(b.id));
+  .map(([id, b]) => ({ ...b, id })).sort((a, b) => (a.no || 0) - (b.no || 0) || (a.at || 0) - (b.at || 0) || a.id.localeCompare(b.id));
 const beer = id => { const b = S.db.beers?.[id]; return b && !b.del ? { ...b, id } : null; };
-const numOf = id => beers().findIndex(b => b.id === id) + 1;
+const numOf = id => S.db.beers?.[id]?.no || 0;
+const isOpen = b => !S.blind || !!S.revealed[b.id];
+const dname = b => isOpen(b) ? b.name : `Bier ${pad(b.no || 0)}`;
+
+// Jedes Bier bekommt eine feste Nummer. Doppelte Nummern (wenn zwei Handys gleichzeitig Biere anlegen)
+// werden auf allen Handys gleich aufgelöst: das ältere Bier behält die Nummer.
+function ensureNumbers() {
+  const L = Object.entries(S.db.beers || {}).filter(([, b]) => b && !b.del && b.name)
+    .sort((a, b) => (a[1].at || 0) - (b[1].at || 0) || a[0].localeCompare(b[0]));
+  let max = Math.max(0, ...L.map(([, b]) => isNum(b.no) ? b.no : 0)), changed = false;
+  const used = new Set();
+  for (const [, b] of L) {
+    if (!isNum(b.no) || b.no < 1 || used.has(b.no)) { b.no = ++max; changed = true; }
+    used.add(b.no);
+  }
+  if (changed) persist();
+}
+function shuffleNumbers() {
+  const L = beers(), nums = L.map((_, i) => i + 1), now = Date.now();
+  for (let i = nums.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [nums[i], nums[j]] = [nums[j], nums[i]]; }
+  L.forEach((b, i) => { Object.assign(S.db.beers[b.id], { no: nums[i], upd: now }); });
+  S.db.meta = { ...(S.db.meta || {}), shuffledAt: now };
+  persist();
+}
 const mine = id => S.me ? S.db.ratings?.[id]?.[S.me.id] || null : null;
 const userName = uid => S.db.users?.[uid]?.name || 'Gast';
 const isNum = v => typeof v === 'number' && !isNaN(v);
@@ -161,8 +185,11 @@ async function shrink(file, max = 520) {
 }
 
 function circle(b, opt = {}) {
+  const extras = `${opt.ok ? `<span class="ok">${svgIcon('check')}</span>` : ''}${opt.medal ? `<span class="medal">${opt.medal}</span>` : ''}`;
+  // Verdeckt: nur die Nummer, kein Foto
+  if (b && !isOpen(b)) return `<div class="circle mystery${opt.anim ? ' anim' : ''}"><span class="q">${pad(b.no || 0)}</span>${extras}</div>`;
   const src = b ? photo(b) : null;
-  return `<div class="circle"${opt.id ? ` id="${opt.id}"` : ''}>${src ? `<img src="${src}" alt="">` : GOBLET}${opt.no ? `<span class="no">${pad(numOf(b.id))}</span>` : ''}${opt.ok ? `<span class="ok">${svgIcon('check')}</span>` : ''}${opt.medal ? `<span class="medal">${opt.medal}</span>` : ''}</div>`;
+  return `<div class="circle${opt.anim ? ' anim' : ''}"${opt.id ? ` id="${opt.id}"` : ''}>${src ? `<img src="${src}" alt="">` : GOBLET}${opt.no ? `<span class="no">${pad(numOf(b.id))}</span>` : ''}${extras}</div>`;
 }
 
 /* ---------- Abgleich ohne Server: per Link oder QR-Code ---------- */
@@ -189,7 +216,7 @@ const b64u = bytes => { let s = ''; for (let i = 0; i < bytes.length; i++) s += 
 const unb64u = s => Uint8Array.from(atob(s.replace(/-/g, '+').replace(/_/g, '/')), c => c.charCodeAt(0));
 const pipe = async (bytes, stream) => new Uint8Array(await new Response(new Blob([bytes]).stream().pipeThrough(stream)).arrayBuffer());
 const baseUrl = () => location.origin + location.pathname;
-const t36 = ms => Math.round((ms || 0) / 1000).toString(36);
+const t36 = ms => Math.floor((ms || 0) / 1000).toString(36);
 const f36 = s => (parseInt(s, 36) || 0) * 1000;
 
 // Kompaktes Format, damit auch viele Bewertungen in einen QR-Code passen
@@ -212,16 +239,18 @@ function pack(mineOnly) {
   return {
     v: 2,
     u: [...U.keys()].map(id => [id, S.db.users[id]?.name || '', t36(S.db.users[id]?.at)]),
-    b: B.map(([id, b]) => [id, b.name, b.style || '', b.abv ?? '', b.region || '', b.brewery || '', b.by || '', b.byId || '', t36(b.at), t36(b.upd), b.del ? 1 : 0]),
+    b: B.map(([id, b]) => [id, b.name, b.style || '', b.abv ?? '', b.region || '', b.brewery || '', b.by || '', b.byId || '', t36(b.at), t36(b.upd), b.del ? 1 : 0, b.no || 0]),
+    m: t36(S.db.meta?.shuffledAt),
     r
   };
 }
 function unpack(p) {
   if (p.db) return p.db;
   const db = emptyDb(), U = p.u || [], B = p.b || [];
+  db.meta.shuffledAt = f36(p.m);
   for (const [id, name, at] of U) if (name) db.users[id] = { name, at: f36(at) };
-  for (const [id, name, style, abv, region, brewery, by, byId, at, upd, del] of B)
-    db.beers[id] = { name, style, abv: abv === '' ? null : abv, region, brewery, by, byId, at: f36(at), upd: f36(upd), del: !!del };
+  for (const [id, name, style, abv, region, brewery, by, byId, at, upd, del, no] of B)
+    db.beers[id] = { name, style, abv: abv === '' ? null : abv, region, brewery, by, byId, at: f36(at), upd: f36(upd), del: !!del, no };
   for (const row of p.r || []) {
     const b = B[row[0]], u = U[row[1]];
     if (!b || !u) continue;
@@ -256,7 +285,7 @@ function merge(db) {
   for (const [id, b] of Object.entries(db.beers || {})) {
     if (!ID.test(id) || !b || typeof b !== 'object') continue;
     const clean = { name: str(b.name, 60), style: str(b.style, 40), abv: numIn(b.abv, 0, 30), region: str(b.region, 40), brewery: str(b.brewery, 50),
-      by: str(b.by, 30), byId: str(b.byId, 16), at: numIn(b.at, 0, 9e15) || 0, upd: numIn(b.upd, 0, 9e15) || 0, del: !!b.del, photo: false };
+      by: str(b.by, 30), byId: str(b.byId, 16), at: numIn(b.at, 0, 9e15) || 0, upd: numIn(b.upd, 0, 9e15) || 0, del: !!b.del, photo: false, no: numIn(b.no, 1, 999) };
     if (newer(clean, S.db.beers[id])) { if (!S.db.beers[id] && !clean.del) n.beers++; S.db.beers[id] = { ...clean, photo: !!S.db.beers[id]?.photo, photoAt: S.db.beers[id]?.photoAt || 0 }; }
   }
   for (const [id, u] of Object.entries(db.users || {})) {
@@ -272,6 +301,9 @@ function merge(db) {
       if (!cur || clean.at > (cur.at || 0)) { n.ratings++; (S.db.ratings[bid] ||= {})[uid] = clean; }
     }
   }
+  const sh = numIn(db.meta?.shuffledAt, 0, 9e15) || 0;
+  if (sh > (S.db.meta?.shuffledAt || 0)) S.db.meta = { ...(S.db.meta || {}), shuffledAt: sh };
+  ensureNumbers();
   return n;
 }
 
@@ -347,21 +379,40 @@ function viewBeers() {
         <div><b>${done}</b><span>Bewertet</span></div>
       </div>
     </section>
+    ${S.blind && L.length ? tapSection(L) : ''}
     ${cheersSection()}
     <section class="sec paper center">${wheat()}
-      <p class="kick">Auf dem Tisch</p>${CUP}
+      <p class="kick">${S.blind ? 'Blindverkostung' : 'Auf dem Tisch'}</p>${CUP}
       <h2 class="big">Unsere Biere</h2>
-      ${L.length ? '<p class="info-box">Biere und Bewertungen gleicht ihr über „Abgleich“ oben rechts aus: per QR-Code oder Link von Handy zu Handy.</p>' : ''}
+      ${L.length ? `<p class="info-box">${S.blind ? 'Die Namen bleiben verdeckt, bis ihr ein Bier aufdeckt. ' : ''}Biere und Bewertungen gleicht ihr über „Abgleich“ oben rechts aus.</p>` : ''}
       <div class="grid">${L.map(card).join('')}<button class="add-tile" data-act="add"><span>+</span><b>Bier hinzufügen</b></button></div>
     </section>`;
 }
 
+function tapSection(L) {
+  const poured = L.filter(b => S.poured[b.id]).length;
+  return `<section class="sec dark center">
+    <p class="kick">Am Kühlschrank</p>${CUP}
+    <h2 class="big">Ausschank</h2>
+    <p class="small" style="color:var(--parch);max-width:420px;margin:12px auto 0">Wer einschenkt, sucht hier das Bier heraus und sagt die Nummer an. Alle anderen bewerten nur die Nummer.</p>
+    ${!S.db.meta?.shuffledAt && L.length > 1 ? '<p class="small" style="color:var(--peach);max-width:420px;margin:8px auto 0"><i>Die Nummern sind noch nicht verlost. Das geht im Ausschank.</i></p>' : ''}
+    <div class="btns"><button class="btn" data-act="tap">Ausschank öffnen</button></div>
+    ${poured ? `<p class="small" style="color:var(--peach);margin-top:12px">${poured} von ${L.length} ausgeschenkt</p>` : ''}
+  </section>`;
+}
+
 function card(b) {
   const r = mine(b.id);
+  if (!isOpen(b)) return `<article class="bcard" data-act="detail" data-id="${b.id}">
+    <span class="ribbon">Bier ${pad(b.no)}</span>
+    ${circle(b, { ok: !!r })}
+    <p class="script">noch verdeckt</p>
+    ${r ? `<p class="score">${fmt(aspAvg(r))}<small>dein Schnitt</small></p><button class="more" data-act="reveal" data-id="${b.id}">Aufdecken</button>` : `<button class="more" data-act="rateThis" data-id="${b.id}">Bewerten</button>`}
+  </article>`;
   const meta = [b.region ? esc(b.style) : '', b.abv != null ? `${pct(b.abv)} %` : ''].filter(Boolean).join(' · ');
   return `<article class="bcard" data-act="detail" data-id="${b.id}">
     <span class="ribbon">${esc(b.name)}</span>
-    ${circle(b, { no: true, ok: !!r })}
+    ${circle(b, { no: true, ok: !!r, anim: ui.justRevealed === b.id })}
     <p class="script">${b.region ? 'aus ' + esc(b.region) : esc(b.style || 'Bier')}</p>
     ${meta ? `<p class="small">${meta}</p>` : ''}
     ${b.by ? `<p class="small"><i>mitgebracht von ${esc(b.by)}</i></p>` : ''}
@@ -386,17 +437,25 @@ function viewRate() {
     <p class="empty">Es sind noch keine Biere eingetragen.</p><div class="btns"><button class="btn" data-act="add">Bier hinzufügen</button></div></section>`;
   if (!ui.sel || !beer(ui.sel)) { ui.sel = (L.find(b => !mine(b.id)) || L[0]).id; ui.draft = null; }
   if (!ui.draft) ui.draft = JSON.parse(JSON.stringify(mine(ui.sel) || {}));
-  const b = beer(ui.sel), d = ui.draft, saved = !!mine(b.id), done = L.filter(x => mine(x.id)).length;
+  const b = beer(ui.sel), d = ui.draft, saved = !!mine(b.id), done = L.filter(x => mine(x.id)).length, open = isOpen(b);
   const meta = [b.style, b.abv != null ? `${pct(b.abv)} %` : '', b.brewery].filter(Boolean).map(esc).join(' · ');
+  const check = svgIcon('check').replace('<svg', '<svg width="12" height="12" stroke="currentColor" stroke-width="3" fill="none"');
   return `<section class="sec paper center">${wheat()}
     <p class="kick">${done} von ${L.length} bewertet</p>${CUP}
     <h1 class="big">Bewerten</h1>
-    <div class="picker" id="picker">${L.map(x => `<button class="pick ${x.id === b.id ? 'on' : ''} ${mine(x.id) ? 'done' : ''}" data-act="pick" data-id="${x.id}"><em>${mine(x.id) ? svgIcon('check').replace('<svg', '<svg width="12" height="12" stroke="currentColor" stroke-width="3" fill="none"') : pad(numOf(x.id))}</em><span>${esc(x.name)}</span></button>`).join('')}</div>
+    ${S.blind ? '<p class="small"><i>Wähl die Nummer, die gerade ausgeschenkt wurde.</i></p>' : ''}
+    <div class="picker" id="picker">${L.map(x => `<button class="pick ${x.id === b.id ? 'on' : ''} ${mine(x.id) ? 'done' : ''}" data-act="pick" data-id="${x.id}"><em>${mine(x.id) ? check : pad(x.no)}</em><span>${esc(dname(x))}</span></button>`).join('')}</div>
+    ${saved && !open ? `<div class="reveal-box">
+      <p class="kick">Bewertung gespeichert</p>
+      <p class="small">Wenn alle so weit sind, deckt ihr das Bier auf.</p>
+      <div class="btns"><button class="btn" data-act="reveal" data-id="${b.id}">Bier ${pad(b.no)} aufdecken</button>${L.some(x => !mine(x.id)) ? '<button class="btn line" data-act="nextBeer">Nächste Nummer</button>' : ''}</div>
+    </div>` : ''}
     <div class="rcard">
-      <span class="ribbon">${esc(b.name)}</span>
-      <div style="margin-top:14px">${circle(b, { no: true })}</div>
-      ${b.region ? `<p class="script" style="margin-top:10px">aus ${esc(b.region)}</p>` : ''}
-      ${meta ? `<p class="small meta">${meta}</p>` : ''}
+      <span class="ribbon${open && ui.justRevealed === b.id ? ' anim' : ''}">${esc(dname(b))}</span>
+      <div style="margin-top:14px">${circle(b, { no: true, anim: open && ui.justRevealed === b.id })}</div>
+      ${open && b.region ? `<p class="script" style="margin-top:10px">aus ${esc(b.region)}</p>` : ''}
+      ${open && meta ? `<p class="small meta">${meta}</p>` : ''}
+      ${open && S.blind ? `<p class="small"><i>Bier ${pad(b.no)}, aufgedeckt</i></p>` : ''}
       ${ASPECTS.map((a, i) => aspectRow(a, d, i === 0)).join('')}
       <div class="fazit">
         <p class="kick">Am Ende</p>
@@ -423,10 +482,12 @@ function viewResults() {
   const R = rows(ui.filter, ui.mode), fname = FILTERS.find(f => f[0] === ui.filter)[1];
   const valHTML = r => ui.filter === 'f' ? `${fmt(r.v)}<br>${miniStars(r.v)}` : `${fmt(r.v)}`;
   const top = [R[1], R[0], R[2]];
+  const hidden = S.blind ? beers().filter(b => !isOpen(b) && ratingsOf(b.id).length).length : 0;
   return `<section class="sec dark center">
       <p class="kick">Die Ergebnisse</p>${CUP}
       <h1 class="big">Rangliste</h1>
       <div class="seg2"><button data-act="mode" data-v="all" class="${ui.mode === 'all' ? 'on' : ''}">Alle</button><button data-act="mode" data-v="me" class="${ui.mode === 'me' ? 'on' : ''}">Nur ich</button></div>
+      ${hidden ? `<p class="small" style="color:var(--peach);margin-top:16px">${plural(hidden, 'Bier ist', 'Biere sind')} noch verdeckt.</p><div class="btns" style="margin-top:8px"><button class="btn line light small" data-act="revealAll">Alle aufdecken</button></div>` : ''}
     </section>
     <section class="sec paper">
       <p class="kick">Sortiert nach</p>
@@ -434,12 +495,12 @@ function viewResults() {
       ${R.length ? `
         <div class="podium">${top.map((r, i) => r ? `<div class="pod p${[2, 1, 3][i]}" data-act="detail" data-id="${r.b.id}">
           ${circle(r.b, { medal: [2, 1, 3][i] })}
-          <span class="ribbon">${esc(r.b.name)}</span>
+          <span class="ribbon">${esc(dname(r.b))}</span>
           <p class="val">${fmt(r.v)}</p><small>${plural(r.n, 'Stimme', 'Stimmen')}</small>
         </div>` : '<div></div>').join('')}</div>
         <ol class="rlist">${R.map((r, i) => `<li data-act="detail" data-id="${r.b.id}">
           <span class="rk">${pad(i + 1)}</span>
-          <div><b>${esc(r.b.name)}</b><small>${[r.b.region, r.b.style].filter(Boolean).map(esc).join(' · ') || '&nbsp;'}</small></div>
+          <div><b>${esc(dname(r.b))}</b><small>${isOpen(r.b) ? [r.b.region, r.b.style].filter(Boolean).map(esc).join(' · ') || '&nbsp;' : 'noch verdeckt'}</small></div>
           <div class="v">${valHTML(r)}<br><small>${plural(r.n, 'Stimme', 'Stimmen')}</small></div>
           <div class="bar"><i style="width:${Math.max(0, r.v / 5 * 100)}%"></i></div>
         </li>`).join('')}</ol>
@@ -464,18 +525,18 @@ function people() {
 
 function awardsSection() {
   const mode = ui.mode, A = [];
-  for (const a of ASPECTS) { const r = rows(a.k, mode)[0]; if (r) A.push([a.best, r.b.name, `${fmt(r.v)} von 5`]); }
+  for (const a of ASPECTS) { const r = rows(a.k, mode)[0]; if (r) A.push([a.best, dname(r.b), `${fmt(r.v)} von 5`]); }
   const F = rows('f', mode);
   if (F.length) {
     const minN = mode === 'all' ? Math.max(1, Math.ceil(Math.max(...F.map(r => r.n)) / 2)) : 1;
     const fav = F.find(r => r.n >= minN);
-    if (fav) A.push(['Favorit der Runde', fav.b.name, `${fmt(fav.v)} Sterne im Fazit`]);
+    if (fav) A.push(['Favorit der Runde', dname(fav.b), `${fmt(fav.v)} Sterne im Fazit`]);
     const worst = F[F.length - 1];
-    if (F.length > 1 && worst.v <= 2 && worst !== fav) A.push(['Lieber nicht nochmal', worst.b.name, `${fmt(worst.v)} Sterne im Fazit`]);
+    if (F.length > 1 && worst.v <= 2 && worst !== fav) A.push(['Lieber nicht nochmal', dname(worst.b), `${fmt(worst.v)} Sterne im Fazit`]);
   }
   if (mode === 'all') {
     const con = rows('total', 'all').filter(r => r.n >= 2).sort((x, y) => y.sd - x.sd)[0];
-    if (con && con.sd >= .3) A.push(['Am umstrittensten', con.b.name, `Werte von ${fmt(Math.min(...con.vals))} bis ${fmt(Math.max(...con.vals))}`]);
+    if (con && con.sd >= .3) A.push(['Am umstrittensten', dname(con.b), `Werte von ${fmt(Math.min(...con.vals))} bis ${fmt(Math.max(...con.vals))}`]);
   }
   return `<section class="sec copper center">
     <p class="kick">Ausgezeichnet</p>${CUP}
@@ -516,7 +577,33 @@ function closeSheet(fromPop) {
 window.addEventListener('popstate', () => { if (ui.sheet) closeSheet(true); });
 const shHead = t => `<div class="sh-head"><h2>${t}</h2><button class="x" data-act="close" aria-label="Schließen">${svgIcon('close')}</button></div>`;
 function sheetHTML() {
-  return ({ beer: sheetBeer, detail: sheetDetail, menu: sheetMenu, qr: sheetQR })[ui.sheet.type]();
+  return ({ beer: sheetBeer, detail: sheetDetail, menu: sheetMenu, qr: sheetQR, tap: sheetTap })[ui.sheet.type]();
+}
+
+// Ausschank: nur für die Person am Kühlschrank. Name suchen oder auslosen, Nummer ansagen.
+function sheetTap() {
+  const s = ui.sheet, L = beers().slice().sort((a, b) => a.name.localeCompare(b.name, 'de'));
+  const hit = s.pick ? beer(s.pick) : null, left = L.filter(b => !S.poured[b.id]).length;
+  return `${shHead('Ausschank')}
+    <div class="sh-body">
+      <p class="info-box" style="margin-top:0">Nur für die Person am Kühlschrank: Hier stehen die Namen. Bier heraussuchen, Nummer ansagen, einschenken.</p>
+      ${hit ? `<div class="tap-hit">
+        <p class="kick">${esc(hit.name)}</p>
+        <div class="tap-no">${pad(hit.no)}</div>
+        <p class="script">Ansagen: Bier ${pad(hit.no)}</p>
+        <div class="btns"><button class="btn small${S.poured[hit.id] ? ' line' : ''}" data-act="poured" data-id="${hit.id}">${S.poured[hit.id] ? 'Ausgeschenkt' : 'Als ausgeschenkt markieren'}</button>
+        <button class="more" data-act="editBeer" data-id="${hit.id}">Angaben bearbeiten</button></div>
+      </div>` : ''}
+      <div class="btns">${left ? `<button class="btn" data-act="drawBeer">Bier auslosen</button>` : '<p class="small"><i>Alle Biere sind ausgeschenkt.</i></p>'}</div>
+      <h3 class="sub-h">Bier heraussuchen</h3>
+      <div class="form"><input id="tap-q" data-in="tapq" placeholder="Name eingeben" autocomplete="off"></div>
+      <ul class="tap-list">${L.map(b => `<li data-act="tapPick" data-id="${b.id}" data-name="${esc(b.name.toLowerCase())}" class="${S.poured[b.id] ? 'done' : ''}${hit && hit.id === b.id ? ' on' : ''}">
+        <div><b>${esc(b.name)}</b><small>${[b.region, b.style].filter(Boolean).map(esc).join(' · ')}${S.poured[b.id] ? `${b.region || b.style ? ' · ' : ''}ausgeschenkt` : ''}</small></div>
+        <span class="tap-badge">${pad(b.no)}</span></li>`).join('')}</ul>
+      <h3 class="sub-h">Nummern</h3>
+      <p class="small">${S.db.meta?.shuffledAt ? 'Die Nummern sind zufällig verlost.' : 'Die Nummern folgen noch der Reihenfolge der Eingabe. Nach dem Eintragen einmal verlosen, damit die Reihenfolge nichts verrät.'} Danach den Stand unter „Abgleich“ an alle schicken.</p>
+      <div class="btns"><button class="btn line small" data-act="shuffle">Nummern ${S.db.meta?.shuffledAt ? 'neu ' : ''}verlosen</button></div>
+    </div>`;
 }
 
 function sheetBeer() {
@@ -557,15 +644,18 @@ function sheetDetail() {
     const m = mean(vals), me = my ? val(my, key) : null;
     return `<div class="dstat"><span>${label}</span><div class="bar"><i style="width:${m / max * 100}%"></i>${isNum(me) ? `<u style="left:${me / max * 100}%"></u>` : ''}</div><b>${fmt(m)}</b></div>`;
   };
-  const notes = all.filter(([, r]) => r.t || isNum(r.f));
+  const open = isOpen(b);
+  // Notizen der anderen könnten das Bier verraten, deshalb erst nach dem Aufdecken
+  const notes = open ? all.filter(([, r]) => r.t || isNum(r.f)) : [];
   return `${shHead(`Bier ${pad(numOf(b.id))}`)}
     <div class="sh-body detail">
-      ${circle(b)}
-      <span class="ribbon">${esc(b.name)}</span>
-      ${b.region ? `<p class="script" style="margin-top:10px">aus ${esc(b.region)}</p>` : ''}
-      ${meta ? `<p class="small">${meta}</p>` : ''}
-      ${b.by ? `<p class="small"><i>mitgebracht von ${esc(b.by)}</i></p>` : ''}
-      <div class="btns"><button class="btn" data-act="rateThis" data-id="${b.id}">${my ? 'Bewertung ändern' : 'Jetzt bewerten'}</button><button class="btn line" data-act="editBeer" data-id="${b.id}">Bearbeiten</button></div>
+      ${circle(b, { anim: open && ui.justRevealed === b.id })}
+      <span class="ribbon">${esc(dname(b))}</span>
+      ${open ? `${b.region ? `<p class="script" style="margin-top:10px">aus ${esc(b.region)}</p>` : ''}
+        ${meta ? `<p class="small">${meta}</p>` : ''}
+        ${b.by ? `<p class="small"><i>mitgebracht von ${esc(b.by)}</i></p>` : ''}` : '<p class="script" style="margin-top:10px">noch verdeckt</p>'}
+      <div class="btns"><button class="btn" data-act="rateThis" data-id="${b.id}">${my ? 'Bewertung ändern' : 'Jetzt bewerten'}</button>
+        ${open ? `<button class="btn line" data-act="editBeer" data-id="${b.id}">Bearbeiten</button>` : `<button class="btn line" data-act="reveal" data-id="${b.id}">Aufdecken</button>`}</div>
       ${all.length ? `<div class="dstats">
         <h3 class="sub-h">Bewertungen · ${plural(all.length, 'Stimme', 'Stimmen')}</h3>
         ${statRow('Gesamt', 'total', 5)}${ASPECTS.map(a => statRow(a.n, a.k, 5)).join('')}${statRow('Fazit', 'f', 5)}
@@ -589,6 +679,9 @@ function sheetMenu() {
       <h3 class="sub-h">Empfangen</h3>
       <p class="small">Den Code eines anderen Handys mit der Kamera scannen und den Link öffnen. Oder einen geschickten Link hier einfügen:</p>
       <div class="form paste"><input id="m-paste" placeholder="Link einfügen" autocomplete="off"><button class="btn small line" data-act="importPaste">Übernehmen</button></div>
+      <h3 class="sub-h">Blindverkostung</h3>
+      <p class="small">An: Die Biere erscheinen nur als Nummern, bis ihr sie aufdeckt. Gilt für dieses Handy.</p>
+      <div class="btns" style="justify-content:flex-start"><button class="fchip ${S.blind ? 'on' : ''}" data-act="blind" data-v="1">An</button><button class="fchip ${S.blind ? '' : 'on'}" data-act="blind" data-v="0">Aus</button></div>
       <h3 class="sub-h">Dein Name</h3>
       <div class="form paste"><input id="m-name" maxlength="30" value="${esc(S.me.name)}"><button class="btn small line" data-act="rename">Ändern</button></div>
       <h3 class="sub-h">Herunterladen</h3>
@@ -668,10 +761,50 @@ const ACTIONS = {
     ASPECTS.forEach(a => { r[a.k] = d[a.k]; });
     write(`data/ratings/${b.id}/${S.me.id}`, r);
     toast(`${cheer()} Bewertung gespeichert`);
-    const next = beers().find(x => !mine(x.id));
-    ui.sel = next ? next.id : b.id; ui.draft = null;
+    ui.draft = null;
+    // Blind: beim Bier bleiben, damit es gemeinsam aufgedeckt werden kann
+    if (isOpen(b)) { const next = beers().find(x => !mine(x.id)); if (next) ui.sel = next.id; }
     render();
     $('#picker')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  },
+  reveal(el) {
+    const b = beer(el.dataset.id);
+    if (!b) return;
+    if (!mine(b.id) && !confirm(`Du hast Bier ${pad(b.no)} noch nicht bewertet. Trotzdem aufdecken?`)) return;
+    S.revealed[b.id] = true; ui.justRevealed = b.id; persist();
+    render(); renderSheet();
+    toast(`Bier ${pad(b.no)} ist ${b.name}`, 3500);
+    setTimeout(() => { if (ui.justRevealed === b.id) ui.justRevealed = null; }, 1500);
+  },
+  revealAll() {
+    if (!confirm('Alle Biere auf diesem Handy aufdecken?')) return;
+    beers().forEach(b => { S.revealed[b.id] = true; });
+    persist(); render();
+  },
+  nextBeer() {
+    const L = beers(), i = L.findIndex(x => x.id === ui.sel);
+    const next = [...L.slice(i + 1), ...L.slice(0, i)].find(x => !mine(x.id));
+    if (next) { ui.sel = next.id; ui.draft = null; render(); $('#picker')?.scrollIntoView({ behavior: 'smooth', block: 'start' }); }
+  },
+  blind(el) { S.blind = el.dataset.v === '1'; persist(); render(); renderSheet(); fillQR(); },
+  tap() { openSheet({ type: 'tap' }); },
+  tapPick(el) { ui.sheet.pick = el.dataset.id; renderSheet(); sheetEl().scrollTop = 0; },
+  drawBeer() {
+    const open = beers().filter(b => !S.poured[b.id]);
+    if (!open.length) return;
+    ui.sheet.pick = open[Math.floor(Math.random() * open.length)].id;
+    renderSheet(); sheetEl().scrollTop = 0;
+  },
+  poured(el) {
+    const id = el.dataset.id;
+    if (S.poured[id]) delete S.poured[id]; else S.poured[id] = true;
+    persist(); renderSheet(); render();
+  },
+  shuffle() {
+    const rated = Object.values(S.db.ratings || {}).some(per => Object.keys(per || {}).length);
+    if (!confirm(rated ? 'Es gibt schon Bewertungen. Nummern trotzdem neu verlosen? Die Bewertungen bleiben beim richtigen Bier, aber die Nummern ändern sich für alle.' : 'Nummern jetzt zufällig verlosen?')) return;
+    shuffleNumbers(); ui.sheet.pick = null; renderSheet(); render();
+    toast('Nummern verlost. Jetzt unter „Abgleich“ an alle schicken.', 3500);
   },
   async saveBeer() {
     const s = ui.sheet, name = $('#f-name').value.trim();
@@ -682,7 +815,8 @@ const ACTIONS = {
       name, style: $('#f-style').value.trim(), region: $('#f-region').value.trim(), brewery: $('#f-brewery').value.trim(),
       by: $('#f-by').value.trim(), abv: abv >= 0 && abv < 30 ? Math.round(abv * 10) / 10 : null,
       byId: prev?.byId || S.me.id, at: prev?.at || now, upd: now, del: false,
-      photo: !!prev?.photo, photoAt: prev?.photoAt || 0
+      photo: !!prev?.photo, photoAt: prev?.photoAt || 0,
+      no: prev?.no || Math.max(0, ...beers().map(x => x.no || 0)) + 1
     };
     if (s.photo) { b.photo = true; b.photoAt = now; storePhoto(id, s.photo); }
     else if (s.rm) { b.photo = false; b.photoAt = now; localStorage.removeItem(PK + id); }
@@ -738,7 +872,13 @@ document.addEventListener('click', e => {
   if (f) { e.preventDefault(); e.stopPropagation(); f(el); }
 });
 document.addEventListener('keydown', e => { if (e.key === 'Enter' && e.target.id === 'w-name') ACTIONS.login(); });
-document.addEventListener('input', e => { if (e.target.dataset.in === 'note' && ui.draft) ui.draft.t = e.target.value; });
+document.addEventListener('input', e => {
+  if (e.target.dataset.in === 'note' && ui.draft) ui.draft.t = e.target.value;
+  if (e.target.dataset.in === 'tapq') {
+    const q = e.target.value.trim().toLowerCase();
+    document.querySelectorAll('.tap-list li').forEach(li => { li.hidden = !!q && !li.dataset.name.includes(q); });
+  }
+});
 document.addEventListener('change', async e => {
   if (e.target.id === 'f-photo' && e.target.files[0]) {
     try { ui.sheet.photo = await shrink(e.target.files[0]); ui.sheet.rm = false; $('#f-prev').innerHTML = `<img src="${ui.sheet.photo}" alt="">`; }
@@ -781,7 +921,7 @@ async function exportImage() {
   try { await Promise.all(['700 60px Oswald', '600 30px Oswald', '400 30px Lora', 'italic 400 26px Lora', '400 40px Kaushan'].map(f => document.fonts.load(f))); } catch (e) { /* Ersatzschriften */ }
   const HEAD = 'Oswald, "Arial Narrow", sans-serif', SER = 'Lora, Georgia, serif', SCR = 'Kaushan, cursive';
   const imgs = await Promise.all(R.map(r => new Promise(ok => {
-    const src = photo(r.b); if (!src) return ok(null);
+    const src = isOpen(r.b) ? photo(r.b) : null; if (!src) return ok(null);
     const i = new Image(); i.onload = () => ok(i); i.onerror = () => ok(null); i.src = src;
   })));
   const fit = (t, max) => { if (x.measureText(t).width <= max) return t; while (t.length > 1 && x.measureText(t + '…').width > max) t = t.slice(0, -1); return t + '…'; };
@@ -811,11 +951,12 @@ async function exportImage() {
     const cx = 232, cy = y + 52, rad = 46;
     x.fillStyle = '#ce9b76'; x.beginPath(); x.arc(cx, cy, rad, 0, 7); x.fill();
     if (imgs[i]) { x.save(); x.beginPath(); x.arc(cx, cy, rad, 0, 7); x.clip(); const im = imgs[i], k = Math.max(2 * rad / im.width, 2 * rad / im.height); x.drawImage(im, cx - im.width * k / 2, cy - im.height * k / 2, im.width * k, im.height * k); x.restore(); }
+    else if (!isOpen(r.b)) { x.fillStyle = '#291c15'; x.textAlign = 'center'; x.font = `700 44px ${HEAD}`; x.fillText(pad(r.b.no), cx, cy + 16); x.textAlign = 'left'; }
     else { x.fillStyle = '#dc9a45'; x.beginPath(); x.moveTo(cx - 18, cy - 24); x.lineTo(cx + 18, cy - 24); x.quadraticCurveTo(cx + 18, cy + 10, cx, cy + 14); x.quadraticCurveTo(cx - 18, cy + 10, cx - 18, cy - 24); x.fill();
       x.strokeStyle = '#291c15'; x.lineWidth = 3; x.stroke(); x.beginPath(); x.moveTo(cx, cy + 14); x.lineTo(cx, cy + 30); x.moveTo(cx - 12, cy + 31); x.lineTo(cx + 12, cy + 31); x.stroke(); }
-    x.fillStyle = '#291c15'; x.font = `600 40px ${HEAD}`; x.fillText(fit(r.b.name.toUpperCase(), 520), 310, y + 48);
+    x.fillStyle = '#291c15'; x.font = `600 40px ${HEAD}`; x.fillText(fit(dname(r.b).toUpperCase(), 520), 310, y + 48);
     x.fillStyle = '#5a4636'; x.font = `italic 400 27px ${SER}`;
-    x.fillText(fit([r.b.region ? 'aus ' + r.b.region : '', r.b.style, plural(r.n, 'Stimme', 'Stimmen')].filter(Boolean).join(' · '), 520), 310, y + 88);
+    x.fillText(fit((isOpen(r.b) ? [r.b.region ? 'aus ' + r.b.region : '', r.b.style] : ['noch verdeckt']).concat(plural(r.n, 'Stimme', 'Stimmen')).filter(Boolean).join(' · '), 520), 310, y + 88);
     x.textAlign = 'right'; x.fillStyle = '#291c15'; x.font = `700 64px ${HEAD}`; x.fillText(fmt(r.v), W - 70, y + 74);
     x.strokeStyle = 'rgba(41,28,21,.3)'; x.lineWidth = 2; x.setLineDash([8, 6]); x.beginPath(); x.moveTo(70, y + rowH - 8); x.lineTo(W - 70, y + rowH - 8); x.stroke(); x.setLineDash([]);
   });
@@ -867,6 +1008,7 @@ function toast(msg, ms = 2400) {
 (function start() {
   const m = location.hash.match(/^#d=([A-Za-z0-9_-]+)$/);
   if (m) { history.replaceState(null, '', location.pathname + location.search); if (S.me) setTimeout(() => importLink(m[1]), 0); else ui.pending = m[1]; }
+  ensureNumbers();
   render();
   if ('serviceWorker' in navigator && location.protocol === 'https:') navigator.serviceWorker.register('sw.js').catch(() => {});
 })();

@@ -15,4 +15,6 @@ Design nach einer Brauerei-Vorlage (Vintclub): Pergament, Kupfer, Dunkelbraun, O
 Ohne Server: Unter „Abgleich“ oben rechts zeigt jedes Handy einen QR-Code mit Bieren und Bewertungen. Ein anderes Handy scannt ihn mit der Kamera, der Link führt die Daten zusammen (neuere Einträge gewinnen, nichts wird überschrieben). Alternativ als Link teilen und einfügen. Fotos bleiben auf dem Handy, auf dem sie aufgenommen wurden.
 
 ## Bewertung
+Blindverkostung: Jedes Bier hat eine Nummer (im Ausschank zufällig verlost). Bewertet wird nur die Nummer, aufgedeckt wird danach auf jedem Handy einzeln oder alle auf einmal unter Ergebnisse. Der Ausschank zeigt der Person am Kühlschrank Name und Nummer.
+
 Aussehen, Geruch, Geschmack, Nachgeschmack und Drinkability von 1 bis 5, dazu ein Fazit von 1 Stern („Nie wieder“) bis 5 Sternen („Wird eins meiner Favoriten“). Der Gesamtwert ist der Schnitt der fünf Kategorien.

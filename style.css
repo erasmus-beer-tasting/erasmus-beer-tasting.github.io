@@ -328,3 +328,30 @@ textarea:focus,.form input:focus,.form select:focus{outline:none;border-color:va
   font:600 .72rem var(--head);letter-spacing:.12em;text-transform:uppercase}
 .sync-btn svg{width:18px;height:18px;stroke:var(--peach);stroke-width:1.8;fill:none;stroke-linecap:round;stroke-linejoin:round}
 .sync-btn:active{background:rgba(255,255,255,.08)}
+
+/* Blindverkostung */
+.circle.mystery{background:var(--peach);box-shadow:inset 0 0 0 6px var(--peach),inset 0 0 0 7px rgba(41,28,21,.35)}
+.circle.mystery .q{font:700 2.9rem/1 var(--head);color:var(--ink);letter-spacing:.02em}
+.pod .circle.mystery .q{font-size:2rem}
+.pod.p1 .circle.mystery .q{font-size:2.6rem}
+.detail .circle.mystery .q{font-size:3.8rem}
+.anim{animation:flip .7s cubic-bezier(.2,1.4,.4,1)}
+@keyframes flip{0%{transform:rotateY(90deg) scale(.8);opacity:0}100%{transform:none;opacity:1}}
+.reveal-box{border:1.5px dashed var(--copper);background:rgba(192,112,58,.08);padding:16px 14px 18px;margin-top:16px}
+.reveal-box .btns{margin-top:12px}
+.tap-hit{text-align:center;background:var(--dark);color:var(--parch);padding:20px 14px 18px;margin:16px 0 6px;position:relative}
+.tap-hit::before{content:"";position:absolute;inset:6px;border:1px dashed rgba(235,226,209,.35);pointer-events:none}
+.tap-hit .kick{color:var(--peach)}
+.tap-no{font:700 6rem/1 var(--head);color:var(--copper);text-shadow:3px 3px 0 rgba(0,0,0,.4)}
+.tap-hit .script{color:var(--parch);font-size:1.3rem}
+.tap-hit .btns{position:relative;align-items:center}
+.tap-hit .btn.line{color:var(--parch);border-color:rgba(235,226,209,.6)}
+.tap-hit .more{color:var(--peach);border-color:var(--peach)}
+.tap-list{list-style:none;margin:10px 0 0;padding:0}
+.tap-list li{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:11px 4px;border-bottom:1.5px dashed var(--line);cursor:pointer}
+.tap-list li b{display:block;font:600 1rem/1.2 var(--head);letter-spacing:.04em;text-transform:uppercase;color:var(--ink)}
+.tap-list li small{display:block;font-style:italic;font-size:.8rem}
+.tap-list li.on{background:rgba(192,112,58,.12)}
+.tap-list li.done b{opacity:.5}
+.tap-badge{flex:0 0 auto;width:42px;height:42px;border-radius:50%;background:var(--peach);display:grid;place-items:center;font:700 1.05rem var(--head);color:var(--ink)}
+.tap-list li.done .tap-badge{background:transparent;border:1.5px solid var(--line)}
